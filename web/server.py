@@ -201,6 +201,21 @@ class LedgerHandler(BaseHTTPRequestHandler):
                 return
             self._send_json({"ok": True, **summary})
             return
+        if parsed.path == "/api/telegram/report":
+            body = self._read_json()
+            period = str(body.get("period") or "").strip().lower()
+            if period not in {"day", "week", "month", "year"}:
+                self._send_json({"error": "period must be day, week, month, or year"}, 400)
+                return
+            try:
+                from notify.alerts import send_period_report
+
+                with SpendingDatabase() as db:
+                    result = send_period_report(db, period)
+                self._send_json(result)
+            except Exception as exc:  # noqa: BLE001 — surface setup errors to UI
+                self._send_json({"error": str(exc)}, 503)
+            return
         recurring = RECURRING_TXN_PATH.match(parsed.path)
         if recurring:
             with SpendingDatabase() as db:

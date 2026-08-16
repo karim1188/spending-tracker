@@ -234,7 +234,15 @@ h2 {
   background: var(--copper);
 }
 
-.action-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.telegram-row { margin-top: 0.55rem; align-items: center; }
+.telegram-label {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.tg-report { padding: 0.55rem 0.75rem; }
 .btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
 .btn-ghost:hover { background: var(--ink); color: var(--paper); }
 .btn-danger { background: var(--copper-deep); }

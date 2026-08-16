@@ -848,7 +848,42 @@ class SpendingDatabase:
     def day_spending_report(self, day: str) -> dict:
         from zoneinfo import ZoneInfo
 
-        tz = ZoneInfo("Asia/Riyadh")
+        noon = datetime.fromisoformat(day).replace(hour=12, tzinfo=ZoneInfo("Asia/Riyadh"))
+        report = self.period_spending_report("day", timezone_name="Asia/Riyadh", now=noon)
+        report["day"] = day
+        return report
+
+    def period_spending_report(
+        self,
+        period: str,
+        timezone_name: str = "Asia/Riyadh",
+        now: datetime | None = None,
+    ) -> dict:
+        from zoneinfo import ZoneInfo
+
+        period = (period or "day").strip().lower()
+        if period not in {"day", "week", "month", "year"}:
+            raise ValueError("period must be day, week, month, or year")
+        tz = ZoneInfo(timezone_name)
+        stamp = now.astimezone(tz) if now else datetime.now(tz)
+        today = stamp.date()
+        if period == "day":
+            start = today
+            end = today
+            title = f"Day · {today.isoformat()}"
+        elif period == "week":
+            start = today.fromordinal(today.toordinal() - today.weekday())
+            end = today
+            title = f"Week · {start.isoformat()} → {end.isoformat()}"
+        elif period == "month":
+            start = today.replace(day=1)
+            end = today
+            title = f"Month · {today.strftime('%Y-%m')}"
+        else:
+            start = today.replace(month=1, day=1)
+            end = today
+            title = f"Year · {today.year}"
+
         rows = self.conn.execute(
             """
             SELECT amount, merchant, category, transaction_time, created_at, transaction_type
@@ -862,26 +897,39 @@ class SpendingDatabase:
             raw = row["transaction_time"] or row["created_at"]
             if not raw:
                 continue
-            stamp = datetime.fromisoformat(str(raw).replace(" ", "T"))
-            if stamp.tzinfo is None:
-                stamp = stamp.replace(tzinfo=timezone.utc)
-            if stamp.astimezone(tz).date().isoformat() != day:
-                continue
-            matched.append(row)
+            when = datetime.fromisoformat(str(raw).replace(" ", "T"))
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            local_day = when.astimezone(tz).date()
+            if start <= local_day <= end:
+                matched.append(row)
+
         total = sum(float(row["amount"] or 0) for row in matched)
-        by_label: dict[str, float] = {}
+        by_merchant: dict[str, float] = {}
+        by_category: dict[str, float] = {}
         for row in matched:
-            label = (row["merchant"] or "").strip() or row["category"] or "Other"
-            by_label[label] = by_label.get(label, 0) + float(row["amount"] or 0)
-        merchants = [
-            {"label": label, "total_amount": amount}
-            for label, amount in sorted(by_label.items(), key=lambda item: item[1], reverse=True)[:5]
-        ]
+            merchant = (row["merchant"] or "").strip() or row["category"] or "Other"
+            category = row["category"] or "Other"
+            amount = float(row["amount"] or 0)
+            by_merchant[merchant] = by_merchant.get(merchant, 0) + amount
+            by_category[category] = by_category.get(category, 0) + amount
+
+        def top(mapping: dict[str, float], limit: int = 5) -> list[dict]:
+            return [
+                {"label": label, "total_amount": amount}
+                for label, amount in sorted(mapping.items(), key=lambda item: item[1], reverse=True)[:limit]
+            ]
+
         return {
-            "day": day,
+            "period": period,
+            "title": title,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "day": today.isoformat() if period == "day" else None,
             "total_amount": total,
             "txn_count": len(matched),
-            "merchants": merchants,
+            "merchants": top(by_merchant),
+            "categories": top(by_category),
         }
 
 

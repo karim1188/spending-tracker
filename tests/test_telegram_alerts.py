@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from database.db import SpendingDatabase
 from models.transaction import Transaction
-from notify.alerts import tick
+from notify.alerts import format_period_report, send_period_report, tick
 from notify.settings import TelegramSettings
 
 
@@ -25,7 +25,7 @@ def _settings() -> TelegramSettings:
     )
 
 
-def _spend(db: SpendingDatabase, guid: str, amount: float) -> None:
+def _spend(db: SpendingDatabase, guid: str, amount: float, when: datetime | None = None) -> None:
     db.insert_transaction(
         Transaction(
             source_message_guid=guid,
@@ -36,7 +36,7 @@ def _spend(db: SpendingDatabase, guid: str, amount: float) -> None:
             currency="SAR",
             merchant="HungerStation",
             category="Food & Dining",
-            transaction_time=datetime(2026, 8, 16, 9, 0, tzinfo=ZoneInfo("UTC")),
+            transaction_time=when or datetime(2026, 8, 16, 9, 0, tzinfo=ZoneInfo("UTC")),
         )
     )
 
@@ -66,4 +66,28 @@ def test_daily_digest_sends_after_nine(tmp_path):
     assert tick(db, settings=settings, send=sent.append, now=after) == ["digest"]
     assert "80.00" in sent[0]
     assert tick(db, settings=settings, send=sent.append, now=after) == []
+    db.close()
+
+
+def test_period_reports_day_week_month_year(tmp_path):
+    db = SpendingDatabase(tmp_path / "spending.db")
+    now = datetime(2026, 8, 16, 12, 0, tzinfo=RIYADH)
+    _spend(db, "today", 50, datetime(2026, 8, 16, 8, 0, tzinfo=ZoneInfo("UTC")))
+    _spend(db, "earlier-week", 30, datetime(2026, 8, 12, 8, 0, tzinfo=ZoneInfo("UTC")))
+    _spend(db, "earlier-month", 20, datetime(2026, 8, 2, 8, 0, tzinfo=ZoneInfo("UTC")))
+    _spend(db, "earlier-year", 10, datetime(2026, 1, 5, 8, 0, tzinfo=ZoneInfo("UTC")))
+    day = db.period_spending_report("day", now=now)
+    week = db.period_spending_report("week", now=now)
+    month = db.period_spending_report("month", now=now)
+    year = db.period_spending_report("year", now=now)
+    assert day["total_amount"] == 50
+    assert week["total_amount"] == 80
+    assert month["total_amount"] == 100
+    assert year["total_amount"] == 110
+    sent: list[str] = []
+    result = send_period_report(db, "month", settings=_settings(), send=sent.append, now=now)
+    assert result["ok"] is True
+    assert "Month" in sent[0]
+    assert "100.00" in sent[0]
+    assert "By category" in format_period_report(month)
     db.close()

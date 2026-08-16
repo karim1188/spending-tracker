@@ -21,16 +21,40 @@ def format_sar(amount: float) -> str:
 def format_day_report(report: dict, limit: float) -> str:
     remaining = limit - report["total_amount"]
     lines = [
-        f"Spending for {report['day']}",
+        f"Spending for {report.get('day') or report.get('title') or 'today'}",
         f"{format_sar(report['total_amount'])} · {report['txn_count']} purchases",
     ]
     if remaining >= 0:
         lines.append(f"{format_sar(remaining)} left before the {format_sar(limit)} daily warning")
     else:
         lines.append(f"Over the {format_sar(limit)} daily warning by {format_sar(-remaining)}")
-    if report["merchants"]:
+    if report.get("merchants"):
         lines.append("")
         lines.append("Top")
+        for row in report["merchants"]:
+            lines.append(f"· {row['label']}: {format_sar(row['total_amount'])}")
+    return "\n".join(lines)
+
+
+def format_period_report(report: dict, limit: float | None = None) -> str:
+    lines = [
+        f"Spending report · {report['title']}",
+        f"{format_sar(report['total_amount'])} · {report['txn_count']} purchases",
+    ]
+    if report.get("period") == "day" and limit is not None:
+        remaining = limit - report["total_amount"]
+        if remaining >= 0:
+            lines.append(f"{format_sar(remaining)} left before the {format_sar(limit)} daily warning")
+        else:
+            lines.append(f"Over the {format_sar(limit)} daily warning by {format_sar(-remaining)}")
+    if report.get("categories"):
+        lines.append("")
+        lines.append("By category")
+        for row in report["categories"]:
+            lines.append(f"· {row['label']}: {format_sar(row['total_amount'])}")
+    if report.get("merchants"):
+        lines.append("")
+        lines.append("Top merchants")
         for row in report["merchants"]:
             lines.append(f"· {row['label']}: {format_sar(row['total_amount'])}")
     return "\n".join(lines)
@@ -42,6 +66,28 @@ def format_warning(report: dict, limit: float) -> str:
         f"Today is {format_sar(report['total_amount'])} — over {format_sar(limit)}.\n\n"
         f"{format_day_report(report, limit)}"
     )
+
+
+def send_period_report(
+    db: SpendingDatabase,
+    period: str,
+    settings: TelegramSettings | None = None,
+    send: Callable[[str], None] | None = None,
+    now: datetime | None = None,
+) -> dict:
+    settings = settings if settings is not None else load_telegram_settings()
+    if send is None:
+        send = sender_from_settings(settings)
+    if settings is None or send is None:
+        raise RuntimeError("Telegram is not configured. Add config/telegram.json and run telegram_login.py once.")
+    report = db.period_spending_report(
+        period,
+        timezone_name=settings.timezone,
+        now=now,
+    )
+    text = format_period_report(report, settings.daily_limit_sar if period == "day" else None)
+    send(text)
+    return {"ok": True, "period": period, "title": report["title"], "total_amount": report["total_amount"]}
 
 
 def tick(

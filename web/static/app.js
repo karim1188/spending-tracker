@@ -480,6 +480,31 @@ dedupeBtn.addEventListener("click", async () => {
   }
 });
 
+document.querySelectorAll(".tg-report").forEach((button) => {
+  button.addEventListener("click", async () => {
+    const period = button.dataset.period;
+    button.disabled = true;
+    setStatus(`Sending ${period} report to Telegram…`);
+    try {
+      const response = await fetch("/api/telegram/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ period }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setStatus(data.error || "Could not send Telegram report", true);
+        return;
+      }
+      setStatus(`Sent ${period} report to Telegram · ${sar(data.total_amount)}`);
+    } catch (error) {
+      setStatus(String(error), true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+});
+
 merchantForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const response = await fetch("/api/merchant-rules", {
