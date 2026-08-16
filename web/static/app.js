@@ -24,6 +24,17 @@ const detailAge = document.getElementById("detail-age");
 const ruleMerchant = document.getElementById("rule-merchant");
 const ruleCategory = document.getElementById("rule-category");
 const merchantForm = document.getElementById("merchant-form");
+const recurringAmountEl = document.getElementById("recurring-amount");
+const recurringCountEl = document.getElementById("recurring-count");
+const viewRecurring = document.getElementById("view-recurring");
+const recurringBtn = document.getElementById("recurring-btn");
+const recurringBars = document.getElementById("recurring-bars");
+const recurringBody = document.getElementById("recurring-body");
+const recurringPageMonth = document.getElementById("recurring-page-month");
+const recurringPageYear = document.getElementById("recurring-page-year");
+const recurringPageCount = document.getElementById("recurring-page-count");
+const navLedger = document.getElementById("nav-ledger");
+const navRecurring = document.getElementById("nav-recurring");
 const deleteBtn = document.getElementById("delete-btn");
 const excludeBtn = document.getElementById("exclude-btn");
 
@@ -131,6 +142,10 @@ async function loadSummary() {
     : "spending only · salary and incoming transfers excluded";
   totalEl.textContent = String(data.txn_count);
   totalCountEl.textContent = "matching filters";
+  recurringAmountEl.textContent = sar(data.recurring_monthly);
+  recurringCountEl.textContent = data.recurring_count
+    ? `${data.recurring_count} monthly bill${data.recurring_count === 1 ? "" : "s"}`
+    : "no monthly bills yet";
   const checkpoint = (data.checkpoint && data.checkpoint[0]) || null;
   checkpointEl.textContent = checkpoint ? `#${checkpoint.last_message_id}` : "—";
   checkedAtEl.textContent = checkpoint && checkpoint.last_checked_at
@@ -157,7 +172,7 @@ async function loadTransactions() {
       <td>${age(stamp)}</td>
       <td>${row.bank || "—"}</td>
       <td>${row.sender || "—"}</td>
-      <td>${row.merchant || "—"}</td>
+      <td>${row.merchant || "—"}${row.is_recurring ? ' <span class="badge">monthly</span>' : ""}</td>
       <td>${row.transaction_type || "—"}</td>
       <td>${row.category || "Other"}</td>
       <td class="num">${row.amount == null ? "—" : sar(row.amount)}</td>
@@ -167,7 +182,8 @@ async function loadTransactions() {
 
 async function showDetail(id) {
   currentTxnId = id;
-  viewLedger.hidden = true;
+  hideViews();
+  setNav("ledger");
   viewDetail.hidden = false;
   const response = await fetch(`/api/transactions/${id}`);
   if (!response.ok) {
@@ -187,6 +203,7 @@ async function showDetail(id) {
     ["Type", transaction.transaction_type || "—"],
     ["Category", transaction.category || "Other"],
     ["Amount", transaction.amount == null ? "—" : sar(transaction.amount)],
+    ["Recurring", transaction.is_recurring ? "Yes · monthly bill" : "No"],
     ["Card", transaction.card_last4 || "—"],
     ["Account", transaction.account_last4 || "—"],
     ["GUID", transaction.source_message_guid || "—"],
@@ -195,15 +212,62 @@ async function showDetail(id) {
   detailRaw.textContent = transaction.raw_message || "(no SMS body stored)";
   ruleMerchant.value = transaction.merchant || "";
   ruleCategory.value = transaction.category || "";
+  recurringBtn.textContent = transaction.is_recurring ? "Remove monthly bill" : "Mark as monthly bill";
+  recurringBtn.disabled = ["salary", "bank_transfer_in"].includes(transaction.transaction_type);
+}
+
+function hideViews() {
+  viewLedger.hidden = true;
+  viewDetail.hidden = true;
+  viewRecurring.hidden = true;
+}
+
+function setNav(page) {
+  navLedger.classList.toggle("active", page === "ledger");
+  navRecurring.classList.toggle("active", page === "recurring");
 }
 
 function showLedger() {
   currentTxnId = null;
+  hideViews();
+  setNav("ledger");
   viewLedger.hidden = false;
-  viewDetail.hidden = true;
+}
+
+async function showRecurring() {
+  currentTxnId = null;
+  hideViews();
+  setNav("recurring");
+  viewRecurring.hidden = false;
+  const response = await fetch("/api/recurring");
+  const data = await response.json();
+  recurringPageMonth.textContent = sar(data.monthly_total);
+  recurringPageYear.textContent = sar(data.yearly_total);
+  recurringPageCount.textContent = data.item_count
+    ? `${data.item_count} bill${data.item_count === 1 ? "" : "s"} you marked`
+    : "mark a transaction as a monthly bill";
+  const catMax = Math.max(...(data.by_category || []).map((row) => Number(row.total_amount) || 0), 0);
+  renderBars(recurringBars, data.by_category || [], catMax);
+  const rows = data.items || [];
+  if (!rows.length) {
+    recurringBody.innerHTML = `<tr><td colspan="4" class="empty">No monthly bills yet. Open a transaction and mark it.</td></tr>`;
+    return;
+  }
+  recurringBody.innerHTML = rows.map((row) => `
+    <tr>
+      <td>${row.label}</td>
+      <td>${row.category || "Other"}</td>
+      <td class="num">${sar(row.amount)}</td>
+      <td><button class="btn btn-ghost" type="button" data-recurring-id="${row.id}">Remove</button></td>
+    </tr>
+  `).join("");
 }
 
 function route() {
+  if (location.hash === "#/recurring") {
+    showRecurring();
+    return;
+  }
   const match = location.hash.match(/^#\/txn\/(\d+)/);
   if (match) {
     showDetail(match[1]);
@@ -283,6 +347,33 @@ merchantForm.addEventListener("submit", async (event) => {
   const target = ruleMerchant.value || "this transaction";
   setStatus(`Saved category for ${target}. Matching merchants will use it from now on.`);
   if (currentTxnId) showDetail(currentTxnId);
+});
+
+recurringBtn.addEventListener("click", async () => {
+  if (!currentTxnId) return;
+  const isMonthly = recurringBtn.textContent.startsWith("Remove");
+  const response = await fetch(`/api/transactions/${currentTxnId}/recurring`, {
+    method: isMonthly ? "DELETE" : "POST",
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    setStatus(data.error || "Could not update recurring bill", true);
+    return;
+  }
+  setStatus(isMonthly ? "Removed from monthly bills." : "Saved as a monthly bill. Open Recurring to see the total.");
+  showDetail(currentTxnId);
+});
+
+recurringBody.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-recurring-id]");
+  if (!button) return;
+  const response = await fetch(`/api/recurring/${button.dataset.recurringId}`, { method: "DELETE" });
+  if (!response.ok) {
+    setStatus("Could not remove monthly bill", true);
+    return;
+  }
+  setStatus("Removed from monthly bills.");
+  showRecurring();
 });
 
 excludeBtn.addEventListener("click", async () => {

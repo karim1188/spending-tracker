@@ -13,8 +13,12 @@
   <div class="grain" aria-hidden="true"></div>
   <header class="mast">
     <div class="mast-mark">
-      <span class="kicker">Local · Read-only Messages</span>
+      <span class="kicker">Local network · Read-only Messages</span>
       <h1>Private<br>Ledger</h1>
+      <nav class="nav-links" aria-label="Pages">
+        <a href="#/" id="nav-ledger">Ledger</a>
+        <a href="#/recurring" id="nav-recurring">Recurring</a>
+      </nav>
     </div>
     <div class="mast-actions">
       <p class="mast-note">SAR spending from bank SMS on this Mac. Nothing leaves the machine.</p>
@@ -38,6 +42,13 @@
         <p class="metric-label">Transactions</p>
         <p class="metric-value small" id="total-amount">—</p>
         <p class="metric-sub" id="total-count">0 transactions</p>
+      </article>
+      <article class="metric metric-link">
+        <a href="#/recurring">
+          <p class="metric-label">Monthly recurring</p>
+          <p class="metric-value small" id="recurring-amount">—</p>
+          <p class="metric-sub" id="recurring-count">no monthly bills yet</p>
+        </a>
       </article>
       <article class="metric">
         <p class="metric-label">Last cursor</p>
@@ -140,11 +151,56 @@
         </label>
         <div class="action-row">
           <button class="btn" type="submit">Save merchant category</button>
+          <button id="recurring-btn" class="btn btn-ghost" type="button">Mark as monthly bill</button>
           <button id="exclude-btn" class="btn btn-ghost" type="button">Exclude this PIN / message</button>
           <button id="delete-btn" class="btn btn-danger" type="button">Delete transaction</button>
         </div>
       </form>
     </article>
+  </main>
+
+  <main id="view-recurring" hidden>
+    <p><a class="back" href="#/">Back to ledger</a></p>
+    <section class="hero-metrics recurring-hero" aria-label="Recurring totals">
+      <article class="metric metric-primary">
+        <p class="metric-label">Every month</p>
+        <p class="metric-value" id="recurring-page-month">—</p>
+        <p class="metric-sub" id="recurring-page-count">bills you marked</p>
+      </article>
+      <article class="metric">
+        <p class="metric-label">Yearly estimate</p>
+        <p class="metric-value small" id="recurring-page-year">—</p>
+        <p class="metric-sub">monthly total × 12</p>
+      </article>
+    </section>
+    <section class="split">
+      <article class="panel">
+        <header class="panel-head">
+          <h2>By category</h2>
+        </header>
+        <div id="recurring-bars" class="bars"></div>
+      </article>
+      <article class="panel">
+        <header class="panel-head">
+          <h2>Monthly bills</h2>
+        </header>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Merchant / bill</th>
+                <th>Category</th>
+                <th class="num">Each month</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="recurring-body">
+              <tr><td colspan="4" class="empty">No monthly bills yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
   </main>
   <script src="/static/app.js"></script>
 </body>

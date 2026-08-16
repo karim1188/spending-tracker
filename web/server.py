@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -16,17 +17,55 @@ from config.loader import BankRegistry
 from database.db import SpendingDatabase
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"
 PORT = 8787
 _sync_lock = threading.Lock()
 TXN_PATH = re.compile(r"^/api/transactions/(\d+)$")
 EXCLUDE_PATH = re.compile(r"^/api/transactions/(\d+)/exclude$")
+RECURRING_TXN_PATH = re.compile(r"^/api/transactions/(\d+)/recurring$")
+RECURRING_ITEM_PATH = re.compile(r"^/api/recurring/(\d+)$")
+
+
+def lan_ipv4() -> list[str]:
+    found: list[str] = []
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            found.append(sock.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        hostname_ip = socket.gethostbyname(socket.gethostname())
+        if hostname_ip and not hostname_ip.startswith("127."):
+            found.append(hostname_ip)
+    except OSError:
+        pass
+    unique: list[str] = []
+    for ip in found:
+        if ip not in unique and not ip.startswith("127."):
+            unique.append(ip)
+    return unique
+
+
+def advertised_urls(host: str, port: int) -> list[str]:
+    urls = [f"http://127.0.0.1:{port}"]
+    if host in {"0.0.0.0", "::", ""}:
+        urls.extend(f"http://{ip}:{port}" for ip in lan_ipv4())
+    elif host not in {"127.0.0.1", "localhost"}:
+        urls.append(f"http://{host}:{port}")
+    seen: list[str] = []
+    for url in urls:
+        if url not in seen:
+            seen.append(url)
+    return seen
 
 
 def row_to_public(row, include_raw: bool = False) -> dict:
     payload = dict(row)
     if not include_raw:
         payload.pop("raw_message", None)
+    if "is_recurring" in payload:
+        payload["is_recurring"] = bool(payload["is_recurring"])
     for key, value in list(payload.items()):
         if hasattr(value, "isoformat"):
             payload[key] = value.isoformat()
@@ -101,6 +140,10 @@ class LedgerHandler(BaseHTTPRequestHandler):
                 return
             self._send_json({"transaction": row_to_public(row, include_raw=True)})
             return
+        if parsed.path == "/api/recurring":
+            with SpendingDatabase() as db:
+                self._send_json(db.recurring_summary())
+            return
         self._send_json({"error": "not found"}, 404)
 
     def do_POST(self) -> None:
@@ -128,6 +171,15 @@ class LedgerHandler(BaseHTTPRequestHandler):
                     db.set_transaction_category(int(txn_id), category)
             self._send_json({"ok": True})
             return
+        recurring = RECURRING_TXN_PATH.match(parsed.path)
+        if recurring:
+            with SpendingDatabase() as db:
+                summary = db.mark_recurring(int(recurring.group(1)))
+            if summary is None:
+                self._send_json({"error": "cannot mark salary or incoming transfers as spending"}, 400)
+                return
+            self._send_json({"ok": True, **summary})
+            return
         exclude = EXCLUDE_PATH.match(parsed.path)
         if exclude:
             with SpendingDatabase() as db:
@@ -137,7 +189,26 @@ class LedgerHandler(BaseHTTPRequestHandler):
         self._send_json({"error": "not found"}, 404)
 
     def do_DELETE(self) -> None:
-        match = TXN_PATH.match(urlparse(self.path).path)
+        parsed = urlparse(self.path)
+        recurring_txn = RECURRING_TXN_PATH.match(parsed.path)
+        if recurring_txn:
+            with SpendingDatabase() as db:
+                summary = db.unmark_recurring(int(recurring_txn.group(1)))
+            if summary is None:
+                self._send_json({"error": "not found"}, 404)
+                return
+            self._send_json({"ok": True, **summary})
+            return
+        recurring_item = RECURRING_ITEM_PATH.match(parsed.path)
+        if recurring_item:
+            with SpendingDatabase() as db:
+                summary = db.delete_recurring_item(int(recurring_item.group(1)))
+            if summary is None:
+                self._send_json({"error": "not found"}, 404)
+                return
+            self._send_json({"ok": True, **summary})
+            return
+        match = TXN_PATH.match(parsed.path)
         if not match:
             self._send_json({"error": "not found"}, 404)
             return
@@ -213,6 +284,10 @@ class LedgerHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+class ReusableLedgerServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+
+
 def serve(host: str = HOST, port: int = PORT) -> ThreadingHTTPServer:
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
-    return ThreadingHTTPServer((host, port), LedgerHandler)
+    return ReusableLedgerServer((host, port), LedgerHandler)

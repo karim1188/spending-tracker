@@ -134,3 +134,78 @@ def test_activation_pin_guid_is_removed_on_init(tmp_path):
     assert db.is_excluded("781A1E6A-0B82-B291-7EEB-ED6DDC8E2788")
     assert db.list_transactions() == []
     db.close()
+
+
+def test_recurring_monthly_bills_do_not_double_count(tmp_path):
+    db = SpendingDatabase(tmp_path / "spending.db")
+    when = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="net1",
+            bank="SNB",
+            sender="SNB-AlAhli",
+            transaction_type="card_purchase",
+            amount=45,
+            currency="SAR",
+            merchant="Netflix",
+            category="Subscriptions",
+            transaction_time=when,
+        )
+    )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="net2",
+            bank="SNB",
+            sender="SNB-AlAhli",
+            transaction_type="card_purchase",
+            amount=45,
+            currency="SAR",
+            merchant="Netflix",
+            category="Subscriptions",
+            transaction_time=when,
+        )
+    )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="stc",
+            bank="SNB",
+            sender="SNB-AlAhli",
+            transaction_type="bill_payment",
+            amount=120,
+            currency="SAR",
+            merchant="STC",
+            category="Bills & Utilities",
+            transaction_time=when,
+        )
+    )
+    netflix_id = db.list_transactions(query="Netflix")[0]["id"]
+    stc_id = db.list_transactions(query="STC")[0]["id"]
+    summary = db.mark_recurring(netflix_id)
+    assert summary["monthly_total"] == 45
+    summary = db.mark_recurring(stc_id)
+    assert summary["monthly_total"] == 165
+    assert summary["yearly_total"] == 165 * 12
+    assert summary["item_count"] == 2
+    assert db.summary()["recurring_monthly"] == 165
+    flagged = [row["is_recurring"] for row in db.list_transactions() if row["merchant"] == "Netflix"]
+    assert flagged == [1, 1]
+    db.unmark_recurring(netflix_id)
+    assert db.recurring_summary()["monthly_total"] == 120
+    salary_id = None
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="sal",
+            bank="SNB",
+            sender="SNB-AlAhli",
+            transaction_type="salary",
+            amount=10000,
+            currency="SAR",
+            category="Salary",
+            transaction_time=when,
+        )
+    )
+    salary_id = db.conn.execute(
+        "SELECT id FROM transactions WHERE source_message_guid = 'sal'"
+    ).fetchone()["id"]
+    assert db.mark_recurring(salary_id) is None
+    db.close()

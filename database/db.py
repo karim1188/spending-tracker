@@ -24,6 +24,7 @@ class SpendingDatabase:
     def initialize(self) -> None:
         schema = SCHEMA_PATH.read_text(encoding="utf-8")
         self.conn.executescript(schema)
+        self._migrate()
         self.conn.commit()
         self.exclude_guid(
             "781A1E6A-0B82-B291-7EEB-ED6DDC8E2788",
@@ -31,6 +32,13 @@ class SpendingDatabase:
         )
         self.purge_pin_messages()
         self.repair_classifications()
+
+    def _migrate(self) -> None:
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(transactions)")}
+        if "is_recurring" not in columns:
+            self.conn.execute(
+                "ALTER TABLE transactions ADD COLUMN is_recurring INTEGER NOT NULL DEFAULT 0"
+            )
 
     def close(self) -> None:
         self.conn.close()
@@ -52,7 +60,7 @@ class SpendingDatabase:
         """Insert a transaction. Returns False if the GUID already exists."""
         row = tx.to_row()
         try:
-            self.conn.execute(
+            cursor = self.conn.execute(
                 """
                 INSERT INTO transactions (
                     source_message_guid, bank, sender, transaction_type, amount,
@@ -66,6 +74,7 @@ class SpendingDatabase:
                 """,
                 row,
             )
+            self._flag_if_known_recurring(cursor.lastrowid, tx.merchant)
             self.conn.commit()
             return True
         except sqlite3.IntegrityError:
@@ -208,7 +217,7 @@ class SpendingDatabase:
             f"""
             SELECT id, bank, sender, transaction_type, amount, currency, merchant,
                    card_last4, account_last4, transaction_time, balance, category,
-                   created_at
+                   created_at, is_recurring
             FROM transactions
             WHERE 1=1
             {extra}
@@ -450,12 +459,137 @@ class SpendingDatabase:
         checkpoint = self.conn.execute(
             "SELECT source, last_message_id, last_checked_at FROM collector_state"
         ).fetchall()
+        rec = self.recurring_summary()
         return {
             "txn_count": int(total_row["txn_count"]),
             "total_amount": float(total_row["total_amount"]),
             "by_category": [dict(row) for row in by_category],
             "by_bank": [dict(row) for row in by_bank],
             "checkpoint": [dict(row) for row in checkpoint],
+            "recurring_monthly": rec["monthly_total"],
+            "recurring_count": rec["item_count"],
         }
+
+    def recurring_key(self, row: sqlite3.Row) -> str:
+        merchant = (row["merchant"] or "").strip().upper()
+        if merchant:
+            return f"merchant:{merchant}"
+        return f"id:{row['id']}"
+
+    def _flag_if_known_recurring(self, txn_id: int, merchant: str | None) -> None:
+        if not txn_id or not merchant:
+            return
+        key = f"merchant:{merchant.strip().upper()}"
+        exists = self.conn.execute(
+            "SELECT 1 FROM recurring_items WHERE item_key = ? LIMIT 1",
+            (key,),
+        ).fetchone()
+        if exists:
+            self.conn.execute(
+                "UPDATE transactions SET is_recurring = 1 WHERE id = ?",
+                (txn_id,),
+            )
+
+    def mark_recurring(self, txn_id: int) -> dict | None:
+        row = self.get_transaction(txn_id)
+        if not row or row["amount"] is None:
+            return None
+        if (row["transaction_type"] or "") in NON_SPENDING_TYPES:
+            return None
+        key = self.recurring_key(row)
+        label = (row["merchant"] or row["category"] or row["transaction_type"] or "Monthly bill").strip()
+        now = datetime.now(timezone.utc).isoformat(sep=" ")
+        self.conn.execute(
+            """
+            INSERT INTO recurring_items (
+                item_key, label, amount, currency, category, source_transaction_id, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(item_key) DO UPDATE SET
+                label = excluded.label,
+                amount = excluded.amount,
+                currency = excluded.currency,
+                category = excluded.category,
+                source_transaction_id = excluded.source_transaction_id,
+                updated_at = excluded.updated_at
+            """,
+            (
+                key,
+                label,
+                float(row["amount"]),
+                row["currency"],
+                row["category"],
+                txn_id,
+                now,
+            ),
+        )
+        merchant = (row["merchant"] or "").strip()
+        if merchant:
+            self.conn.execute(
+                "UPDATE transactions SET is_recurring = 1 WHERE UPPER(IFNULL(merchant, '')) = ?",
+                (merchant.upper(),),
+            )
+        else:
+            self.conn.execute(
+                "UPDATE transactions SET is_recurring = 1 WHERE id = ?",
+                (txn_id,),
+            )
+        self.conn.commit()
+        return self.recurring_summary()
+
+    def unmark_recurring(self, txn_id: int) -> dict | None:
+        row = self.get_transaction(txn_id)
+        if not row:
+            return None
+        return self.delete_recurring_key(self.recurring_key(row))
+
+    def delete_recurring_item(self, item_id: int) -> dict | None:
+        row = self.conn.execute(
+            "SELECT item_key FROM recurring_items WHERE id = ?",
+            (item_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return self.delete_recurring_key(row["item_key"])
+
+    def delete_recurring_key(self, key: str) -> dict:
+        self.conn.execute("DELETE FROM recurring_items WHERE item_key = ?", (key,))
+        if key.startswith("merchant:"):
+            merchant = key.split(":", 1)[1]
+            self.conn.execute(
+                "UPDATE transactions SET is_recurring = 0 WHERE UPPER(IFNULL(merchant, '')) = ?",
+                (merchant,),
+            )
+        elif key.startswith("id:"):
+            self.conn.execute(
+                "UPDATE transactions SET is_recurring = 0 WHERE id = ?",
+                (int(key.split(":", 1)[1]),),
+            )
+        self.conn.commit()
+        return self.recurring_summary()
+
+    def recurring_summary(self) -> dict:
+        items = self.conn.execute(
+            """
+            SELECT id, item_key, label, amount, currency, category, source_transaction_id, updated_at
+            FROM recurring_items
+            ORDER BY amount DESC, label
+            """
+        ).fetchall()
+        monthly = sum(float(row["amount"] or 0) for row in items)
+        by_category: dict[str, float] = {}
+        for row in items:
+            label = row["category"] or "Other"
+            by_category[label] = by_category.get(label, 0) + float(row["amount"] or 0)
+        return {
+            "item_count": len(items),
+            "monthly_total": monthly,
+            "yearly_total": monthly * 12,
+            "items": [dict(row) for row in items],
+            "by_category": [
+                {"label": label, "total_amount": total}
+                for label, total in sorted(by_category.items(), key=lambda item: item[1], reverse=True)
+            ],
+        }
+
 
 

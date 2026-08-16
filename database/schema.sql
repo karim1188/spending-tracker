@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     category TEXT,
     subcategory TEXT,
     raw_message TEXT,
+    is_recurring INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -55,4 +56,16 @@ CREATE TABLE IF NOT EXISTS sender_rules (
     category TEXT,
     bank TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS recurring_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_key TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL,
+    amount REAL NOT NULL,
+    currency TEXT,
+    category TEXT,
+    source_transaction_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME
 );
