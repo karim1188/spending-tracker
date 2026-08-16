@@ -19,6 +19,7 @@ class TelegramSettings:
     daily_minute: int = 0
     daily_limit_sar: float = 200.0
     near_limit_sar: float = 50.0
+    monthly_limit_sar: float = 6000.0
     overheat_celsius: float = 90.0
     overheat_kill: bool = True
     session_path: Path = Path("config/telegram")
@@ -53,6 +54,7 @@ def load_telegram_settings(path: Path | None = None) -> TelegramSettings | None:
         daily_minute=int(data.get("daily_minute") or 0),
         daily_limit_sar=float(data.get("daily_limit_sar") or 200),
         near_limit_sar=float(data.get("near_limit_sar") or 50),
+        monthly_limit_sar=float(data.get("monthly_limit_sar") or 6000),
         overheat_celsius=float(data.get("overheat_celsius") or 90),
         overheat_kill=bool(data.get("overheat_kill", True)),
         session_path=session_path,

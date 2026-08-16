@@ -15,9 +15,8 @@ def test_parse_menu_commands():
     assert parse_menu_command("Day") == "day"
     assert parse_menu_command("/week") == "week"
     assert parse_menu_command("report month") == "month"
-    assert parse_menu_command("temp") == "health"
-    assert parse_menu_command("health") == "health"
-    assert parse_menu_command("cpu") == "health"
+    assert parse_menu_command("monthly1") == "monthly1"
+    assert parse_menu_command("mtd") == "monthly1"
     assert parse_menu_command("what did I spend on coffee?") is None
     assert parse_menu_command("") is None
     assert parse_menu_command("x" * 80) is None
@@ -26,15 +25,15 @@ def test_parse_menu_commands():
 def test_parse_callback_data():
     assert parse_callback_data(b"rpt:day") == "day"
     assert parse_callback_data("rpt:year") == "year"
+    assert parse_callback_data(b"rpt:monthly1") == "monthly1"
     assert parse_callback_data(b"rpt:health") == "health"
-    assert parse_callback_data(b"rpt:thermal") == "thermal"
     assert parse_callback_data(b"rpt:nope") is None
     assert parse_callback_data(b"other") is None
 
 
 def test_menu_buttons_cover_reports():
     labels = {label for row in menu_button_rows() for label, _ in row}
-    assert {"Day", "Week", "Month", "Year", "Server", "Menu"} <= labels
+    assert {"Day", "Week", "Month", "Year", "Monthly1", "Server", "Menu"} <= labels
     assert "PRIVATE LEDGER" in menu_message()
     assert "MENU" in menu_message()
-    assert "health" in menu_message().lower()
+    assert "monthly1" in menu_message().lower()

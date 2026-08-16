@@ -56,6 +56,9 @@ const dashBalanceSub = document.getElementById("dash-balance-sub");
 const dashFlow = document.getElementById("dash-flow");
 const dashDonut = document.getElementById("dash-donut");
 const dashIncomeMix = document.getElementById("dash-income-mix");
+const dashMonthDays = document.getElementById("dash-month-days");
+const dashMonthDaysTitle = document.getElementById("dash-month-days-title");
+const dashMonthDaysSub = document.getElementById("dash-month-days-sub");
 const deleteBtn = document.getElementById("delete-btn");
 const excludeBtn = document.getElementById("exclude-btn");
 
@@ -158,6 +161,67 @@ function renderColumnChart(target, rows) {
   target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Income versus spending by month">
     <line x1="${left}" y1="${top + innerH}" x2="${width - right}" y2="${top + innerH}" stroke="currentColor" stroke-opacity="0.25"></line>
     ${columns}
+  </svg>`;
+}
+
+function renderMonthDayChart(target, series, monthlyLimit) {
+  const days = (series && series.days) || [];
+  if (!days.length) {
+    target.innerHTML = '<p class="empty">No days in this month yet.</p>';
+    return;
+  }
+  const width = 720;
+  const height = 260;
+  const left = 36;
+  const right = 12;
+  const top = 16;
+  const bottom = 28;
+  const innerW = width - left - right;
+  const innerH = height - top - bottom;
+  const limit = Number(monthlyLimit) || 6000;
+  const maxCum = Math.max(
+    ...days.map((row) => Number(row.cumulative_spending) || 0),
+    ...days.map((row) => Number(row.cumulative_income) || 0),
+    limit,
+    1
+  );
+  const step = innerW / Math.max(days.length - 1, 1);
+  const yOf = (value) => top + innerH - ((Number(value) || 0) / maxCum) * innerH;
+  const spendPoints = days
+    .map((row, index) => `${left + index * step},${yOf(row.cumulative_spending)}`)
+    .join(" ");
+  const incomePoints = days
+    .map((row, index) => `${left + index * step},${yOf(row.cumulative_income)}`)
+    .join(" ");
+  const limitY = yOf(limit);
+  const labelEvery = days.length > 20 ? 5 : days.length > 12 ? 2 : 1;
+  const labels = days
+    .map((row, index) => {
+      if (index % labelEvery !== 0 && index !== days.length - 1) return "";
+      return `<text x="${left + index * step}" y="${height - 8}" text-anchor="middle">${row.day}</text>`;
+    })
+    .join("");
+  const dailyBars = days
+    .map((row, index) => {
+      const x = left + index * step;
+      const dayMax = Math.max(Number(row.income) || 0, Number(row.spending) || 0, 1);
+      // small daily markers as thin bars scaled against maxCum for context
+      const inH = ((Number(row.income) || 0) / maxCum) * innerH * 0.35;
+      const outH = ((Number(row.spending) || 0) / maxCum) * innerH * 0.35;
+      return `
+        <rect class="col-in" x="${x - 3}" y="${top + innerH - inH}" width="3" height="${inH}" opacity="0.55"></rect>
+        <rect class="col-out" x="${x}" y="${top + innerH - outH}" width="3" height="${outH}" opacity="0.7"></rect>
+      `;
+    })
+    .join("");
+  target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Month day by day income and spending">
+    <line x1="${left}" y1="${top + innerH}" x2="${width - right}" y2="${top + innerH}" stroke="currentColor" stroke-opacity="0.25"></line>
+    <line x1="${left}" y1="${limitY}" x2="${width - right}" y2="${limitY}" stroke="currentColor" stroke-dasharray="4 4" stroke-opacity="0.55"></line>
+    <text x="${width - right}" y="${limitY - 4}" text-anchor="end">${Math.round(limit)}</text>
+    ${dailyBars}
+    <polyline fill="none" stroke="#4f5d3c" stroke-width="2.2" points="${incomePoints}"></polyline>
+    <polyline fill="none" stroke="#c45c26" stroke-width="2.4" points="${spendPoints}"></polyline>
+    ${labels}
   </svg>`;
 }
 
@@ -365,6 +429,19 @@ async function showDashboard() {
       : "from the latest bank message";
   }
   renderColumnChart(dashFlow, data.by_month || []);
+  const monthSeries = data.month_days || {};
+  if (dashMonthDaysTitle) {
+    dashMonthDaysTitle.textContent = `${monthSeries.label || "This month"} · day by day`;
+  }
+  if (dashMonthDaysSub) {
+    const spent = Number(monthSeries.spending) || 0;
+    const limit = Number(data.monthly_limit_sar) || 6000;
+    dashMonthDaysSub.textContent =
+      `From day 1 through day ${monthSeries.through_day || "—"} · spent ${sar(spent)} of ${sar(limit)} monthly limit`;
+  }
+  if (dashMonthDays) {
+    renderMonthDayChart(dashMonthDays, monthSeries, data.monthly_limit_sar);
+  }
   renderDonut(dashDonut, data.by_category || []);
   renderBars(dashIncomeMix, [
     { label: "Salary", total_amount: data.salary },

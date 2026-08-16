@@ -605,7 +605,91 @@ class SpendingDatabase:
             "latest_balance_bank": balance_row["bank"] if balance_row else None,
             "by_category": [dict(row) for row in by_category],
             "by_month": by_month,
+            "month_days": self.month_day_series(year=year, month=month, bank=bank),
             "recurring_monthly": rec["monthly_total"],
+        }
+
+    def month_day_series(
+        self,
+        year: str | None = None,
+        month: str | None = None,
+        bank: str | None = None,
+        timezone_name: str = "Asia/Riyadh",
+        now: datetime | None = None,
+    ) -> dict:
+        """Day-by-day income/spending from day 1 of the selected (or current) month."""
+        import calendar
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(timezone_name)
+        stamp = now.astimezone(tz) if now else datetime.now(tz)
+        year_n = int(year) if year else stamp.year
+        if month:
+            month_n = int(month)
+        elif year and int(year) == stamp.year:
+            month_n = stamp.month
+        elif year:
+            month_n = 12
+        else:
+            month_n = stamp.month
+        last_day = calendar.monthrange(year_n, month_n)[1]
+        is_current = year_n == stamp.year and month_n == stamp.month
+        through = stamp.day if is_current else last_day
+
+        income_sql = "transaction_type IN ('salary', 'bank_transfer_in')"
+        spend_sql = f"IFNULL(transaction_type, '') NOT IN {NON_SPENDING_SQL}"
+        bank_extra = ""
+        params: list = [f"{year_n:04d}-{month_n:02d}"]
+        if bank:
+            bank_extra = " AND bank = ?"
+            params.append(bank)
+
+        rows = self.conn.execute(
+            f"""
+            SELECT
+                CAST(strftime('%d', COALESCE(transaction_time, created_at)) AS INTEGER) AS day_n,
+                COALESCE(SUM(CASE WHEN {income_sql} THEN amount ELSE 0 END), 0) AS income,
+                COALESCE(SUM(CASE WHEN {spend_sql} THEN amount ELSE 0 END), 0) AS spending
+            FROM transactions
+            WHERE amount IS NOT NULL
+              AND COALESCE(transaction_time, created_at) IS NOT NULL
+              AND strftime('%Y-%m', COALESCE(transaction_time, created_at)) = ?
+              {bank_extra}
+            GROUP BY day_n
+            ORDER BY day_n
+            """,
+            params,
+        ).fetchall()
+        lookup = {int(row["day_n"]): row for row in rows if row["day_n"]}
+        days = []
+        cum_in = 0.0
+        cum_out = 0.0
+        for day_n in range(1, through + 1):
+            row = lookup.get(day_n)
+            income = float(row["income"]) if row else 0.0
+            spending = float(row["spending"]) if row else 0.0
+            cum_in += income
+            cum_out += spending
+            days.append(
+                {
+                    "day": day_n,
+                    "label": str(day_n),
+                    "income": income,
+                    "spending": spending,
+                    "cumulative_income": cum_in,
+                    "cumulative_spending": cum_out,
+                }
+            )
+        return {
+            "year": year_n,
+            "month": month_n,
+            "period": f"{year_n:04d}-{month_n:02d}",
+            "label": f"{MONTH_LABELS[month_n - 1]} {year_n}",
+            "through_day": through,
+            "days_in_month": last_day,
+            "income": cum_in,
+            "spending": cum_out,
+            "days": days,
         }
 
     def _dashboard_periods(self, year: str | None) -> list[str]:

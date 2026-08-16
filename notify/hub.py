@@ -192,12 +192,17 @@ class TelegramHub:
 
     def _build_action_text(self, action: str) -> str:
         from database.db import SpendingDatabase
-        from notify.alerts import format_period_report
+        from notify.alerts import format_monthly1_report, format_period_report
         from notify.health import format_health_report, read_health
 
         if action in {"health", "thermal"}:
             snap = read_health(overheat_threshold=self.settings.overheat_celsius)
             return format_health_report(snap)
+
+        if action == "monthly1":
+            with SpendingDatabase() as db:
+                series = db.month_day_series(timezone_name=self.settings.timezone)
+            return format_monthly1_report(series, self.settings.monthly_limit_sar)
 
         if action not in {"day", "week", "month", "year"}:
             return menu_message()

@@ -15,6 +15,7 @@ from notify.thermal import ThermalStatus, read_thermal_status
 WARNING_KEY = "last_warning_day"
 NEAR_LIMIT_KEY = "last_near_limit_day"
 DIGEST_KEY = "last_digest_day"
+MONTHLY_WARNING_KEY = "last_monthly_warning_month"
 
 NEAR_LIMIT_LINES = (
     "Hey — you're near the limit. Put the card down like it owes you rent.",
@@ -118,6 +119,59 @@ def format_near_limit(
         sections=[body],
         badge="nudge",
         footer="One good skip beats one more purchase",
+    )
+
+
+def format_monthly1_report(series: dict, monthly_limit: float) -> str:
+    spending = float(series.get("spending") or 0)
+    income = float(series.get("income") or 0)
+    body = [
+        kv("Income", format_sar(income)),
+        kv("Spent", format_sar(spending)),
+        kv("Net", format_sar(income - spending)),
+        *budget_lines(spending, monthly_limit),
+        kv("Through", f"day {series.get('through_day')} / {series.get('days_in_month')}"),
+    ]
+    day_lines: list[str] = []
+    for row in series.get("days") or []:
+        if not row["income"] and not row["spending"]:
+            continue
+        day_lines.append(
+            f"D{row['day']:02d}  in {format_sar(row['income'])}  "
+            f"out {format_sar(row['spending'])}  "
+            f"cum {format_sar(row['cumulative_spending'])}"
+        )
+    if not day_lines:
+        day_lines = ["No income or spending yet this month."]
+    # Keep Telegram readable — show latest active days if the month is busy.
+    if len(day_lines) > 14:
+        day_lines = ["… earlier quiet days omitted", *day_lines[-13:]]
+    return card(
+        "Monthly1",
+        subtitle=str(series.get("label") or series.get("period") or "This month"),
+        sections=[body, section("Day by day", day_lines)],
+        badge="month to date",
+        footer=f"Monthly warn at {format_sar(monthly_limit)} · reply menu",
+    )
+
+
+def format_monthly_warning(series: dict, monthly_limit: float) -> str:
+    spending = float(series.get("spending") or 0)
+    over = max(0.0, spending - monthly_limit)
+    body = [
+        "Month-to-date spending crossed the limit.",
+        kv("Spent", format_sar(spending)),
+        kv("Limit", format_sar(monthly_limit)),
+        kv("Over", format_sar(over)),
+        *budget_lines(spending, monthly_limit),
+        kv("Through", f"day {series.get('through_day')}"),
+    ]
+    return card(
+        "Monthly alert",
+        subtitle=str(series.get("label") or "This month"),
+        sections=[body],
+        badge="6000+",
+        footer="Slow the month down — daily limit still applies too",
     )
 
 
@@ -264,6 +318,16 @@ def tick(
         send(format_day_report(report, limit))
         db.set_notify_value(DIGEST_KEY, day)
         sent.append("digest")
+    month_key = stamp.strftime("%Y-%m")
+    series = db.month_day_series(timezone_name=settings.timezone, now=stamp)
+    monthly_limit = settings.monthly_limit_sar
+    if (
+        float(series["spending"]) >= monthly_limit
+        and db.notify_value(MONTHLY_WARNING_KEY) != month_key
+    ):
+        send(format_monthly_warning(series, monthly_limit))
+        db.set_notify_value(MONTHLY_WARNING_KEY, month_key)
+        sent.append("monthly_warning")
     return sent
 
 

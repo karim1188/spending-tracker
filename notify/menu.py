@@ -4,7 +4,7 @@ import re
 
 from notify.theme import BRAND, card
 
-MENU_PERIODS = ("day", "week", "month", "year")
+MENU_PERIODS = ("day", "week", "month", "year", "monthly1")
 MENU_ACTIONS = (*MENU_PERIODS, "health", "thermal", "menu")
 
 _CALLBACK_PREFIX = "rpt:"
@@ -19,6 +19,9 @@ _COMMAND_ALIASES = {
     "week": "week",
     "month": "month",
     "year": "year",
+    "monthly1": "monthly1",
+    "monthly": "monthly1",
+    "mtd": "monthly1",
     "health": "health",
     "status": "health",
     "server": "health",
@@ -39,6 +42,7 @@ def menu_message() -> str:
         "Tap a button below, or send a short command:",
         "",
         "day · week · month · year",
+        "monthly1  (day-by-day from the 1st)",
         "health / cpu / ram / server",
         "menu  (open this again)",
         "",
@@ -57,7 +61,8 @@ def menu_button_rows() -> list[list[tuple[str, bytes]]]:
     return [
         [("Day", f"{_CALLBACK_PREFIX}day".encode()), ("Week", f"{_CALLBACK_PREFIX}week".encode())],
         [("Month", f"{_CALLBACK_PREFIX}month".encode()), ("Year", f"{_CALLBACK_PREFIX}year".encode())],
-        [("Server", f"{_CALLBACK_PREFIX}health".encode()), ("Menu", f"{_CALLBACK_PREFIX}menu".encode())],
+        [("Monthly1", f"{_CALLBACK_PREFIX}monthly1".encode()), ("Server", f"{_CALLBACK_PREFIX}health".encode())],
+        [("Menu", f"{_CALLBACK_PREFIX}menu".encode())],
     ]
 
 

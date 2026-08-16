@@ -141,14 +141,19 @@ class LedgerHandler(BaseHTTPRequestHandler):
             self._send_json({"transaction": row_to_public(row, include_raw=True)})
             return
         if parsed.path == "/api/dashboard":
+            from notify.settings import load_telegram_settings
+
             with SpendingDatabase() as db:
-                self._send_json(
-                    db.dashboard(
-                        year=_first(query, "year"),
-                        month=_first(query, "month"),
-                        bank=_first(query, "bank"),
-                    )
+                payload = db.dashboard(
+                    year=_first(query, "year"),
+                    month=_first(query, "month"),
+                    bank=_first(query, "bank"),
                 )
+            settings = load_telegram_settings()
+            payload["monthly_limit_sar"] = (
+                float(settings.monthly_limit_sar) if settings else 6000.0
+            )
+            self._send_json(payload)
             return
         if parsed.path == "/api/recurring":
             with SpendingDatabase() as db:

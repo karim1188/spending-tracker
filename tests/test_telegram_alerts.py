@@ -29,6 +29,7 @@ def _settings() -> TelegramSettings:
         daily_minute=0,
         daily_limit_sar=200,
         near_limit_sar=50,
+        monthly_limit_sar=6000,
     )
 
 
@@ -126,6 +127,42 @@ def test_period_reports_day_week_month_year(tmp_path):
     assert "100.00" in sent[0]
     assert "CATEGORIES" in format_period_report(month)
     db.close()
+
+
+def test_monthly_spending_warning_at_6000(tmp_path):
+    db = SpendingDatabase(tmp_path / "spending.db")
+    sent: list[str] = []
+    settings = _settings()
+    noon = datetime(2026, 8, 16, 12, 0, tzinfo=RIYADH)
+    _spend(db, "m1", 3000, datetime(2026, 8, 2, 8, 0, tzinfo=ZoneInfo("UTC")))
+    assert tick(db, settings=settings, send=sent.append, now=noon) == []
+    _spend(db, "m2", 3500, datetime(2026, 8, 10, 8, 0, tzinfo=ZoneInfo("UTC")))
+    assert tick(db, settings=settings, send=sent.append, now=noon) == ["monthly_warning"]
+    assert "MONTHLY ALERT" in sent[0] or "Monthly alert" in sent[0] or "6000" in sent[0]
+    assert tick(db, settings=settings, send=sent.append, now=noon) == []
+    db.close()
+
+
+def test_format_monthly1_report_includes_day_rows():
+    from notify.alerts import format_monthly1_report
+
+    series = {
+        "label": "Aug 2026",
+        "through_day": 3,
+        "days_in_month": 31,
+        "income": 1000,
+        "spending": 250,
+        "days": [
+            {"day": 1, "income": 1000, "spending": 0, "cumulative_spending": 0},
+            {"day": 2, "income": 0, "spending": 100, "cumulative_spending": 100},
+            {"day": 3, "income": 0, "spending": 150, "cumulative_spending": 250},
+        ],
+    }
+    text = format_monthly1_report(series, 6000)
+    assert "MONTHLY1" in text
+    assert "D02" in text
+    assert "250.00" in text
+    assert "6,000" in text or "6000" in text
 
 
 def test_week_report_looks_back_seven_days(tmp_path):

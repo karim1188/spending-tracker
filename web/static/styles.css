@@ -406,8 +406,15 @@ tbody tr:hover { background: rgba(196, 92, 38, 0.08); }
 }
 .swatch.in { background: var(--olive); }
 .swatch.out { background: var(--copper); }
+.swatch.limit { background: transparent; border-color: var(--ink); border-style: dashed; }
 .col-in { fill: var(--olive); }
 .col-out { fill: var(--copper); }
+.chart-sub {
+  margin: 0 1rem 0.2rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
 .chart-wrap text {
   font-family: var(--mono);
   font-size: 9px;

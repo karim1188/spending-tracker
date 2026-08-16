@@ -3,6 +3,7 @@ from __future__ import annotations
 from database.db import SpendingDatabase
 from models.transaction import Transaction
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 
 def test_summary_and_list_transactions(tmp_path):
@@ -326,4 +327,51 @@ def test_dashboard_income_versus_spending(tmp_path):
     assert august["income"] == 12400
     assert august["spending"] == 250
     assert db.dashboard(year="2025")["income"] == 0
+    series = db.month_day_series(year="2026", month="08", now=datetime(2026, 8, 10, 12, tzinfo=ZoneInfo("Asia/Riyadh")))
+    assert series["period"] == "2026-08"
+    assert series["through_day"] == 10
+    assert series["days"][0]["day"] == 1
+    assert series["days"][1]["income"] == 12400
+    assert series["days"][1]["spending"] == 250
+    assert series["days"][1]["cumulative_spending"] == 250
+    assert series["spending"] == 250
+    db.close()
+
+
+def test_month_day_series_starts_at_day_one(tmp_path):
+    from zoneinfo import ZoneInfo
+
+    db = SpendingDatabase(tmp_path / "spending.db")
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="d1",
+            bank="SNB",
+            transaction_type="card_purchase",
+            amount=100,
+            currency="SAR",
+            merchant="A",
+            category="Food & Dining",
+            transaction_time=datetime(2026, 8, 1, 9, 0, tzinfo=timezone.utc),
+        )
+    )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="d5",
+            bank="SNB",
+            transaction_type="card_purchase",
+            amount=200,
+            currency="SAR",
+            merchant="B",
+            category="Food & Dining",
+            transaction_time=datetime(2026, 8, 5, 9, 0, tzinfo=timezone.utc),
+        )
+    )
+    series = db.month_day_series(
+        year="2026",
+        month="08",
+        now=datetime(2026, 8, 5, 12, tzinfo=ZoneInfo("Asia/Riyadh")),
+    )
+    assert [row["day"] for row in series["days"]] == [1, 2, 3, 4, 5]
+    assert series["days"][0]["spending"] == 100
+    assert series["days"][4]["cumulative_spending"] == 300
     db.close()

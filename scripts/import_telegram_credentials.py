@@ -41,6 +41,7 @@ def main() -> int:
         "daily_minute": example.get("daily_minute", 0),
         "daily_limit_sar": example.get("daily_limit_sar", 200),
         "near_limit_sar": example.get("near_limit_sar", 50),
+        "monthly_limit_sar": example.get("monthly_limit_sar", 6000),
         "overheat_celsius": example.get("overheat_celsius", 90),
         "overheat_kill": example.get("overheat_kill", True),
     }
