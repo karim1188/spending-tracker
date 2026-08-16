@@ -1,0 +1,19 @@
+{
+  "banks": {
+    "SNB": {
+      "senders": []
+    },
+    "AlRajhi": {
+      "senders": []
+    },
+    "RiyadBank": {
+      "senders": []
+    },
+    "SAB": {
+      "senders": []
+    },
+    "Alinma": {
+      "senders": []
+    }
+  }
+}

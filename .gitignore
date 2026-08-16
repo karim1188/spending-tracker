@@ -1,0 +1,58 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+
+# Test / tooling
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Rust
+**/target/
+**/*.rs.bk
+
+# Local databases — never commit
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+chat.db
+spending.db
+database/spending.db
+
+# Logs may contain SMS fragments
+logs/*
+!logs/.gitkeep
+
+# Secrets
+.env
+.env.*
+credentials*
+*.pem
+*.key
+tokens.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+
+# Local tooling / not part of the Mac app
+.claude/
+.claude-flow/
+.mcp.json
+.pytest_cache/
+vendor/
+CLAUDE.md

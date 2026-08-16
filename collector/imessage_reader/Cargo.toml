@@ -1,0 +1,17 @@
+[package]
+name = "imessage_reader"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Thin read-only JSON adapter over imessage_database for the Spending Tracker"
+
+[[bin]]
+name = "imessage_reader"
+path = "src/main.rs"
+
+[dependencies]
+imessage-database = "4.2.0"
+rusqlite = { version = "=0.40.0", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
