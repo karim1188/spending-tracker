@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 MENU_PERIODS = ("day", "week", "month", "year")
-MENU_ACTIONS = (*MENU_PERIODS, "thermal", "menu")
+MENU_ACTIONS = (*MENU_PERIODS, "health", "thermal", "menu")
 
 _CALLBACK_PREFIX = "rpt:"
 
@@ -17,17 +17,26 @@ _COMMAND_ALIASES = {
     "week": "week",
     "month": "month",
     "year": "year",
-    "thermal": "thermal",
-    "temp": "thermal",
-    "temperature": "thermal",
-    "overheat": "thermal",
+    "health": "health",
+    "status": "health",
+    "server": "health",
+    "cpu": "health",
+    "ram": "health",
+    "mem": "health",
+    "memory": "health",
+    "disk": "health",
+    "thermal": "health",
+    "temp": "health",
+    "temperature": "health",
+    "overheat": "health",
 }
 
 
 def menu_message() -> str:
     return (
         "Spending tracker menu\n"
-        "Tap a button, or send: day · week · month · year · temp\n"
+        "Tap a button, or send: day · week · month · year · health\n"
+        "health = CPU, RAM, disk, temp, app uptime\n"
         "Send menu anytime to open this again."
     )
 
@@ -37,7 +46,7 @@ def menu_button_rows() -> list[list[tuple[str, bytes]]]:
     return [
         [("Day", f"{_CALLBACK_PREFIX}day".encode()), ("Week", f"{_CALLBACK_PREFIX}week".encode())],
         [("Month", f"{_CALLBACK_PREFIX}month".encode()), ("Year", f"{_CALLBACK_PREFIX}year".encode())],
-        [("Mac temp", f"{_CALLBACK_PREFIX}thermal".encode()), ("Menu", f"{_CALLBACK_PREFIX}menu".encode())],
+        [("Server", f"{_CALLBACK_PREFIX}health".encode()), ("Menu", f"{_CALLBACK_PREFIX}menu".encode())],
     ]
 
 
@@ -63,7 +72,6 @@ def parse_menu_command(text: str | None) -> str | None:
     cleaned = cleaned.split("@", 1)[0].strip()
     cleaned = re.sub(r"\s+", " ", cleaned)
     if " " in cleaned:
-        # Allow "/report day" style
         parts = cleaned.split(" ", 1)
         if parts[0] in {"report", "rpt", "spending"} and parts[1] in _COMMAND_ALIASES:
             return _COMMAND_ALIASES[parts[1]]

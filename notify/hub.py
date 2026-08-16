@@ -183,12 +183,12 @@ class TelegramHub:
 
     def _build_action_text(self, action: str) -> str:
         from database.db import SpendingDatabase
-        from notify.alerts import format_overheat, format_period_report
-        from notify.thermal import read_thermal_status
+        from notify.alerts import format_period_report
+        from notify.health import format_health_report, read_health
 
-        if action == "thermal":
-            status = read_thermal_status()
-            return format_overheat(status, self.settings.overheat_celsius, test=True, will_kill=False)
+        if action in {"health", "thermal"}:
+            snap = read_health(overheat_threshold=self.settings.overheat_celsius)
+            return format_health_report(snap)
 
         if action not in {"day", "week", "month", "year"}:
             return menu_message()

@@ -103,6 +103,36 @@ h1 {
 
 .status-strip.error { background: var(--copper-deep); }
 
+.health-strip {
+  margin: 0;
+  padding: 0.65rem 4vw;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  background: color-mix(in srgb, var(--ink) 92%, var(--copper) 8%);
+  color: var(--paper);
+  border-bottom: 1px solid color-mix(in srgb, var(--paper) 12%, transparent);
+}
+
+.health-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 1.25rem;
+  align-items: baseline;
+}
+
+.health-k {
+  opacity: 0.55;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.65rem;
+  margin-right: 0.25rem;
+}
+
+.health-strip.hot {
+  background: color-mix(in srgb, var(--copper-deep) 85%, #000 15%);
+}
+
 main { padding: 1.5rem 4vw 4rem; }
 
 .hero-metrics {

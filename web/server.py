@@ -154,15 +154,23 @@ class LedgerHandler(BaseHTTPRequestHandler):
             with SpendingDatabase() as db:
                 self._send_json(db.recurring_summary())
             return
-        if parsed.path == "/api/thermal":
+        if parsed.path in {"/api/health", "/api/thermal"}:
+            from notify.health import read_health
             from notify.settings import load_telegram_settings
-            from notify.thermal import read_thermal_status
-            from notify.alerts import thermal_payload
 
             settings = load_telegram_settings()
             threshold = settings.overheat_celsius if settings else 90.0
-            status = read_thermal_status()
-            payload = thermal_payload(status, threshold)
+            snap = read_health(overheat_threshold=threshold)
+            payload = snap.as_public_dict()
+            payload["ok"] = True
+            payload["available"] = (
+                snap.cpu_percent is not None
+                or snap.ram_percent is not None
+                or snap.thermal_celsius is not None
+                or snap.cpu_speed_limit is not None
+            )
+            payload["celsius"] = snap.thermal_celsius
+            payload["source"] = snap.thermal_source
             payload["overheat_kill"] = bool(settings.overheat_kill) if settings else True
             self._send_json(payload)
             return
@@ -246,6 +254,23 @@ class LedgerHandler(BaseHTTPRequestHandler):
                     send(menu_message() + "\n\n(Buttons available after the Mac app is running with Telethon.)")
                 self._send_json({"ok": True})
             except Exception as exc:  # noqa: BLE001 — surface setup errors to UI
+                self._send_json({"error": str(exc)}, 503)
+            return
+        if parsed.path == "/api/telegram/health":
+            try:
+                from notify.health import format_health_report, read_health
+                from notify.settings import load_telegram_settings
+                from notify.telegram import sender_from_settings
+
+                settings = load_telegram_settings()
+                send = sender_from_settings(settings)
+                if send is None:
+                    raise RuntimeError("Telegram is not configured")
+                threshold = settings.overheat_celsius if settings else 90.0
+                snap = read_health(overheat_threshold=threshold)
+                send(format_health_report(snap))
+                self._send_json({"ok": True, **snap.as_public_dict()})
+            except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, 503)
             return
         if parsed.path == "/api/telegram/overheat-test":

@@ -526,6 +526,28 @@ if (tgMenuBtn) {
   });
 }
 
+const tgHealthBtn = document.getElementById("tg-health-btn");
+if (tgHealthBtn) {
+  tgHealthBtn.addEventListener("click", async () => {
+    tgHealthBtn.disabled = true;
+    setStatus("Sending server health to Telegram…");
+    try {
+      const response = await fetch("/api/telegram/health", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) {
+        setStatus(data.error || "Could not send health report", true);
+        return;
+      }
+      setStatus("Server health sent to Telegram");
+      applyHealthStrip(data);
+    } catch (error) {
+      setStatus(String(error), true);
+    } finally {
+      tgHealthBtn.disabled = false;
+    }
+  });
+}
+
 const overheatTestBtn = document.getElementById("overheat-test-btn");
 if (overheatTestBtn) {
   overheatTestBtn.addEventListener("click", async () => {
@@ -549,24 +571,78 @@ if (overheatTestBtn) {
   });
 }
 
-async function refreshThermalStrip() {
+function fmtPct(value) {
+  return value == null ? "—" : `${Number(value).toFixed(0)}%`;
+}
+
+function fmtGb(value) {
+  return value == null ? "—" : `${Number(value).toFixed(1)}G`;
+}
+
+function fmtMb(value) {
+  return value == null ? "—" : `${Number(value).toFixed(0)}M`;
+}
+
+function fmtUp(seconds) {
+  if (seconds == null) return "—";
+  const s = Math.max(0, Math.floor(Number(seconds)));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function applyHealthStrip(data) {
+  const strip = document.getElementById("health-strip");
+  if (!strip) return;
+  strip.hidden = false;
+  strip.classList.toggle("hot", Boolean(data.overheating));
+  const set = (id, text) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  };
+  set("health-cpu", data.cpu_percent == null ? "—" : fmtPct(data.cpu_percent));
+  set(
+    "health-ram",
+    data.ram_percent == null
+      ? "—"
+      : `${fmtPct(data.ram_percent)} (${fmtGb(data.ram_used_gb)}/${fmtGb(data.ram_total_gb)})`
+  );
+  set("health-app", fmtMb(data.process_rss_mb));
+  set(
+    "health-disk",
+    data.disk_free_gb == null ? "—" : `${fmtGb(data.disk_free_gb)} free`
+  );
+  if (data.thermal_celsius != null || data.celsius != null) {
+    const t = data.thermal_celsius ?? data.celsius;
+    set("health-temp", `${Number(t).toFixed(1)}°C${data.overheating ? " HOT" : ""}`);
+  } else if (data.cpu_speed_limit != null) {
+    set("health-temp", `limit ${data.cpu_speed_limit}%`);
+  } else {
+    set("health-temp", "n/a");
+  }
+  set("health-up", fmtUp(data.process_uptime_seconds));
+  const ledgerBits = [];
+  if (data.transaction_count != null) ledgerBits.push(`${data.transaction_count} tx`);
+  if (data.spending_db_mb != null) ledgerBits.push(fmtMb(data.spending_db_mb));
+  set("health-ledger", ledgerBits.join(" · ") || "—");
+}
+
+async function refreshHealthStrip() {
   try {
-    const response = await fetch("/api/thermal");
+    const response = await fetch("/api/health");
     if (!response.ok) return;
     const data = await response.json();
-    if (!data.available) return;
-    const temp =
-      data.celsius != null ? `${Number(data.celsius).toFixed(1)}°C` : "throttling";
-    const flag = data.overheating ? " · OVERHEAT" : "";
-    if (!statusStrip.textContent || statusStrip.hidden) {
-      setStatus(`Mac CPU ${temp}${flag}`);
-    }
+    applyHealthStrip(data);
   } catch {
-    /* thermal is optional on non-Mac */
+    /* health optional while developing on Windows */
   }
 }
 
-refreshThermalStrip();
+refreshHealthStrip();
+setInterval(refreshHealthStrip, 15000);
 
 merchantForm.addEventListener("submit", async (event) => {
   event.preventDefault();

@@ -34,12 +34,24 @@
         <button class="btn btn-ghost tg-report" type="button" data-period="month">Month</button>
         <button class="btn btn-ghost tg-report" type="button" data-period="year">Year</button>
         <button id="tg-menu-btn" class="btn btn-ghost" type="button">Send menu</button>
+        <button id="tg-health-btn" class="btn btn-ghost" type="button">Server health</button>
         <button id="overheat-test-btn" class="btn btn-ghost" type="button">Test overheat</button>
       </div>
     </div>
   </header>
 
   <section class="status-strip" id="status-strip" hidden></section>
+  <section class="health-strip" id="health-strip" aria-label="Server health" hidden>
+    <div class="health-grid">
+      <div><span class="health-k">CPU</span> <span id="health-cpu">—</span></div>
+      <div><span class="health-k">RAM</span> <span id="health-ram">—</span></div>
+      <div><span class="health-k">App</span> <span id="health-app">—</span></div>
+      <div><span class="health-k">Disk</span> <span id="health-disk">—</span></div>
+      <div><span class="health-k">Temp</span> <span id="health-temp">—</span></div>
+      <div><span class="health-k">Up</span> <span id="health-up">—</span></div>
+      <div><span class="health-k">Ledger</span> <span id="health-ledger">—</span></div>
+    </div>
+  </section>
 
   <main id="view-dashboard" hidden>
     <section class="dash-toolbar">

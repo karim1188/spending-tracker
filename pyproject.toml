@@ -12,8 +12,8 @@ readme = "README.md"
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 telegram = ["telethon>=1.36"]
-macos = ["watchdog>=4.0"]
-idle = ["watchdog>=4.0", "telethon>=1.36"]
+macos = ["watchdog>=4.0", "psutil>=5.9"]
+idle = ["watchdog>=4.0", "telethon>=1.36", "psutil>=5.9"]
 
 [tool.setuptools]
 packages = [
