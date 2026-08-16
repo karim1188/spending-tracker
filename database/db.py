@@ -7,7 +7,8 @@ from pathlib import Path
 from collector.project_paths import SCHEMA_PATH, SPENDING_DB_PATH
 from models.transaction import Transaction
 
-NON_SPENDING_TYPES = ("salary", "bank_transfer_in")
+NON_SPENDING_TYPES = ("salary", "bank_transfer_in", "wallet_topup")
+NON_SPENDING_SQL = "('salary', 'bank_transfer_in', 'wallet_topup')"
 RECURRING_FREQUENCIES = ("daily", "weekly", "monthly")
 
 COLLECTOR_SOURCE = "macos_messages"
@@ -318,16 +319,16 @@ class SpendingDatabase:
 
     def repair_classifications(self) -> None:
         from categorizer.categorizer import Categorizer
-        from parsers.generic import infer_transaction_type
+        from parsers.generic import classify_transaction_type
 
         categorizer = Categorizer(dict(self.merchant_rules()))
         rows = self.conn.execute(
-            "SELECT id, merchant, transaction_type, raw_message FROM transactions"
+            "SELECT id, bank, merchant, transaction_type, raw_message FROM transactions"
         ).fetchall()
         for row in rows:
             tx_type = row["transaction_type"] or "unknown"
             if row["raw_message"]:
-                inferred = infer_transaction_type(row["raw_message"])
+                inferred = classify_transaction_type(row["raw_message"], bank=row["bank"])
                 if inferred != "unknown":
                     tx_type = inferred
             category = categorizer.categorize(row["merchant"], tx_type)
@@ -464,7 +465,7 @@ class SpendingDatabase:
             year, month, bank, category, sender, transaction_type, query
         )
         if transaction_type not in NON_SPENDING_TYPES and category != "Salary":
-            extra = f"{extra}\nAND IFNULL(transaction_type, '') NOT IN ('salary', 'bank_transfer_in')"
+            extra = f"{extra}\nAND IFNULL(transaction_type, '') NOT IN {NON_SPENDING_SQL}"
         total_row = self.conn.execute(
             f"""
             SELECT
@@ -524,7 +525,7 @@ class SpendingDatabase:
     ) -> dict:
         extra, params = self._period_clause(year, month, bank)
         income_sql = "transaction_type IN ('salary', 'bank_transfer_in')"
-        spend_sql = "IFNULL(transaction_type, '') NOT IN ('salary', 'bank_transfer_in')"
+        spend_sql = f"IFNULL(transaction_type, '') NOT IN {NON_SPENDING_SQL}"
         totals = self.conn.execute(
             f"""
             SELECT
@@ -889,7 +890,7 @@ class SpendingDatabase:
             SELECT amount, merchant, category, transaction_time, created_at, transaction_type
             FROM transactions
             WHERE amount IS NOT NULL
-              AND IFNULL(transaction_type, '') NOT IN ('salary', 'bank_transfer_in')
+              AND IFNULL(transaction_type, '') NOT IN ('salary', 'bank_transfer_in', 'wallet_topup')
             """
         ).fetchall()
         matched = []

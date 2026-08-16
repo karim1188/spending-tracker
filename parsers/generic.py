@@ -67,6 +67,62 @@ TYPE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("card_purchase", ("شراء", "purchase", "pos", "مدى", "mada", "visa", "mastercard")),
 ]
 
+WALLET_TOPUP_NAMES = (
+    "mobily pay",
+    "mobilypay",
+    "mobily card",
+    "موبايلي باي",
+    "موبيلي باي",
+    "بطاقة موبايلي",
+    "محفظة موبايلي",
+    "stc pay",
+    "urpay",
+)
+
+WALLET_TOPUP_HINTS = (
+    "شحن",
+    "محفظة",
+    "wallet",
+    "top up",
+    "top-up",
+    "topup",
+    "load",
+    "تحويل",
+    "حوالة",
+    "transfer",
+    "added",
+    "credit",
+    "إيداع",
+    "ايداع",
+    "received",
+    "تم إضافة",
+    "اضافة رصيد",
+    "إضافة رصيد",
+)
+
+
+def mentions_tracked_wallet(text: str) -> bool:
+    lowered = text.casefold()
+    return any(name in lowered for name in WALLET_TOPUP_NAMES)
+
+
+def looks_like_wallet_topup(text: str, bank: str | None = None) -> bool:
+    lowered = text.casefold()
+    bank_name = (bank or "").casefold()
+    if bank_name == "mobilypay":
+        purchase_like = any(token in lowered for token in ("شراء", "purchase", "at ", " من "))
+        credit_like = any(hint in lowered for hint in WALLET_TOPUP_HINTS)
+        if credit_like and not purchase_like:
+            return True
+        if credit_like and any(token in lowered for token in ("شحن", "top up", "top-up", "topup", "wallet", "محفظة")):
+            return True
+    if not mentions_tracked_wallet(text):
+        return False
+    if bank_name and bank_name != "mobilypay":
+        return True
+    return any(hint in lowered for hint in WALLET_TOPUP_HINTS)
+
+
 OTP_HINTS = (
     "otp",
     "رمز تحقق",
@@ -162,12 +218,18 @@ def infer_transaction_type(text: str) -> str:
     return "unknown"
 
 
+def classify_transaction_type(text: str, bank: str | None = None) -> str:
+    if looks_like_wallet_topup(text, bank=bank):
+        return "wallet_topup"
+    return infer_transaction_type(text)
+
+
 def extract_fields(message: Message, bank: str) -> Transaction | None:
     text = (message.text or "").strip()
     if not text or looks_non_financial(text):
         return None
     amount, currency = parse_amount(text)
-    tx_type = infer_transaction_type(text)
+    tx_type = classify_transaction_type(text, bank=bank)
     merchant = parse_merchant(text)
     if amount is None and tx_type == "unknown" and not merchant:
         return None

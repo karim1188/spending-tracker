@@ -101,6 +101,33 @@ def test_salary_and_incoming_transfer_excluded_from_spending(tmp_path):
             transaction_time=when,
         )
     )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="topup",
+            bank="SNB",
+            sender="SNB-AlAhli",
+            transaction_type="bank_transfer_out",
+            amount=200,
+            currency="SAR",
+            merchant="Mobily Pay",
+            category="Transfers",
+            raw_message="تحويل إلى Mobily Pay بمبلغ 200.00 SAR",
+            transaction_time=when,
+        )
+    )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="mobily-buy",
+            bank="MobilyPay",
+            sender="Mobily Pay",
+            transaction_type="card_purchase",
+            amount=32,
+            currency="SAR",
+            merchant="HungerStation",
+            category="Food & Dining",
+            transaction_time=when,
+        )
+    )
     db.close()
     db = SpendingDatabase(tmp_path / "spending.db")
     salary = db.conn.execute(
@@ -108,11 +135,15 @@ def test_salary_and_incoming_transfer_excluded_from_spending(tmp_path):
     ).fetchone()
     assert salary["transaction_type"] == "salary"
     assert salary["category"] == "Salary"
+    topup = db.conn.execute(
+        "SELECT transaction_type FROM transactions WHERE source_message_guid = 'topup'"
+    ).fetchone()
+    assert topup["transaction_type"] == "wallet_topup"
     summary = db.summary()
-    assert summary["total_amount"] == 80
-    assert summary["txn_count"] == 1
+    assert summary["total_amount"] == 112
+    assert summary["txn_count"] == 2
     assert db.summary(transaction_type="salary")["total_amount"] == 10000
-    assert len(db.list_transactions()) == 3
+    assert len(db.list_transactions()) == 5
     db.close()
 
 

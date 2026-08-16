@@ -310,7 +310,7 @@ async function showDetail(id) {
   ruleMerchant.value = transaction.merchant || "";
   ruleCategory.value = transaction.category || "";
   recurringBtn.textContent = transaction.is_recurring ? "Remove monthly bill" : "Mark as monthly bill";
-  recurringBtn.disabled = ["salary", "bank_transfer_in"].includes(transaction.transaction_type);
+  recurringBtn.disabled = ["salary", "bank_transfer_in", "wallet_topup"].includes(transaction.transaction_type);
 }
 
 function hideViews() {

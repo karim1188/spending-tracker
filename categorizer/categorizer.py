@@ -55,11 +55,22 @@ MERCHANT_RULES: dict[str, str] = {
 TYPE_CATEGORY = {
     "bank_transfer_out": "Transfers",
     "bank_transfer_in": "Transfers",
+    "wallet_topup": "Transfers",
     "salary": "Salary",
     "fee": "Fees",
     "cash_withdrawal": "Cash",
     "cash_deposit": "Cash",
     "bill_payment": "Bills & Utilities",
+}
+
+TYPE_FIRST = {
+    "salary",
+    "bank_transfer_in",
+    "bank_transfer_out",
+    "wallet_topup",
+    "fee",
+    "cash_withdrawal",
+    "cash_deposit",
 }
 
 
@@ -76,6 +87,8 @@ class Categorizer:
         merchant: str | None,
         transaction_type: str | None = None,
     ) -> str:
+        if transaction_type in TYPE_FIRST and transaction_type in TYPE_CATEGORY:
+            return TYPE_CATEGORY[transaction_type]
         if merchant:
             haystack = merchant.upper()
             for pattern, category in sorted(self.rules.items(), key=lambda item: len(item[0]), reverse=True):

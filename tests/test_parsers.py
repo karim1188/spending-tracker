@@ -152,6 +152,29 @@ def test_mobily_pay_purchase():
     assert tx.merchant == "HungerStation"
 
 
+def test_snb_mobily_topup_is_not_double_counted():
+    registry = make_bank_registry(SNB=("SNB-AlAhli",), MobilyPay=("Mobily Pay",))
+    snb = SnbParser(registry)
+    topup = snb.parse(
+        _msg(
+            "SNB-AlAhli",
+            "تحويل إلى Mobily Pay بمبلغ 200.00 SAR",
+        )
+    )
+    assert topup is not None
+    assert topup.transaction_type == "wallet_topup"
+
+    from parsers.banks.mobily import MobilyPayParser
+
+    mobily = MobilyPayParser(registry)
+    purchase = mobily.parse(_msg("Mobily Pay", "Purchase 32.00 SAR at HungerStation"))
+    assert purchase is not None
+    assert purchase.transaction_type == "card_purchase"
+    credit = mobily.parse(_msg("Mobily Pay", "Wallet top up 200.00 SAR received"))
+    assert credit is not None
+    assert credit.transaction_type == "wallet_topup"
+
+
 def test_snb_activation_pin_is_not_a_transaction():
     registry = make_bank_registry(SNB=("SNB-AlAhli",))
     parser = SnbParser(registry)

@@ -12,6 +12,7 @@ TRANSACTION_TYPES = (
     "cash_withdrawal",
     "bank_transfer_out",
     "bank_transfer_in",
+    "wallet_topup",
     "salary",
     "refund",
     "fee",
