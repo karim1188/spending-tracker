@@ -228,6 +228,26 @@ class LedgerHandler(BaseHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001 — surface setup errors to UI
                 self._send_json({"error": str(exc)}, 503)
             return
+        if parsed.path == "/api/telegram/menu":
+            try:
+                from notify.hub import get_hub
+                from notify.menu import menu_message
+                from notify.settings import load_telegram_settings
+                from notify.telegram import sender_from_settings
+
+                hub = get_hub()
+                if hub is not None and hub.ready:
+                    hub.send_menu()
+                else:
+                    settings = load_telegram_settings()
+                    send = sender_from_settings(settings)
+                    if send is None:
+                        raise RuntimeError("Telegram is not configured")
+                    send(menu_message() + "\n\n(Buttons available after the Mac app is running with Telethon.)")
+                self._send_json({"ok": True})
+            except Exception as exc:  # noqa: BLE001 — surface setup errors to UI
+                self._send_json({"error": str(exc)}, 503)
+            return
         if parsed.path == "/api/telegram/overheat-test":
             try:
                 from notify.alerts import send_overheat_test

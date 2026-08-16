@@ -7,6 +7,16 @@ from notify.settings import TelegramSettings
 
 
 def send_telegram(settings: TelegramSettings, text: str) -> None:
+    from notify.hub import get_hub
+
+    hub = get_hub()
+    if hub is not None and hub.ready:
+        hub.send(text)
+        return
+    send_telegram_oneshot(settings, text)
+
+
+def send_telegram_oneshot(settings: TelegramSettings, text: str) -> None:
     asyncio.run(_send(settings, text))
 
 
@@ -35,7 +45,6 @@ def sender_from_settings(settings: TelegramSettings | None) -> Callable[[str], N
     if settings is None or not settings.ready:
         return None
 
-    def _send_text(text: str) -> None:
-        send_telegram(settings, text)
+    from notify.hub import hub_sender
 
-    return _send_text
+    return hub_sender(settings)

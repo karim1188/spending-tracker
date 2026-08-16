@@ -34,7 +34,12 @@ async def main() -> int:
         except SessionPasswordNeededError:
             password = input("Two-step verification password: ")
             await client.sign_in(password=password)
-    await client.send_message(settings.chat, "Spending tracker connected. Daily totals and the SAR 200 warning will come here.")
+    await client.send_message(
+        settings.chat,
+        "Spending tracker connected.\n"
+        "Send menu (or /menu) in Saved Messages for Day / Week / Month / Year reports.\n"
+        "Daily digest and spending warnings still arrive here automatically.",
+    )
     await client.disconnect()
     print("Telegram session saved. Alerts will send to Saved Messages.")
     return 0

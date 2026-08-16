@@ -505,6 +505,27 @@ document.querySelectorAll(".tg-report").forEach((button) => {
   });
 });
 
+const tgMenuBtn = document.getElementById("tg-menu-btn");
+if (tgMenuBtn) {
+  tgMenuBtn.addEventListener("click", async () => {
+    tgMenuBtn.disabled = true;
+    setStatus("Sending Telegram menu…");
+    try {
+      const response = await fetch("/api/telegram/menu", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) {
+        setStatus(data.error || "Could not send Telegram menu", true);
+        return;
+      }
+      setStatus("Telegram menu sent to Saved Messages — tap Day/Week/Month/Year there");
+    } catch (error) {
+      setStatus(String(error), true);
+    } finally {
+      tgMenuBtn.disabled = false;
+    }
+  });
+}
+
 const overheatTestBtn = document.getElementById("overheat-test-btn");
 if (overheatTestBtn) {
   overheatTestBtn.addEventListener("click", async () => {

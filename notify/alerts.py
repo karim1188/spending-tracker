@@ -236,17 +236,21 @@ def tick(
 
 
 def run_loop(interval: float = 60.0) -> None:
+    """Start the Telegram hub (menu + alerts). `interval` kept for API compatibility."""
+    del interval  # hub uses its own 60s cadence
     logger = get_logger()
     settings = load_telegram_settings()
     if settings is None:
         logger.info("Telegram alerts off: copy config/telegram.example.json to config/telegram.json")
         return
-    send = sender_from_settings(settings)
-    if send is None:
+    from notify.hub import start_telegram_hub
+
+    hub = start_telegram_hub(settings)
+    if hub is None:
         logger.info("Telegram alerts off: session not ready (run telegram_login.py)")
         return
     logger.info(
-        "Telegram alerts on. Daily digest at %02d:%02d, near-limit at SAR %.0f left, hard warning at SAR %.0f · overheat %.0f°C kill=%s",
+        "Telegram alerts + menu on. Digest %02d:%02d · near SAR %.0f · warn SAR %.0f · overheat %.0f°C kill=%s · send menu in Saved Messages",
         settings.daily_hour,
         settings.daily_minute,
         settings.near_limit_sar,
@@ -254,21 +258,9 @@ def run_loop(interval: float = 60.0) -> None:
         settings.overheat_celsius,
         settings.overheat_kill,
     )
+    # Hub thread owns the client; keep this thread alive until process exit / kill switch.
     while True:
-        try:
-            _sync_quietly()
-            with SpendingDatabase() as db:
-                sent = tick(db, settings=settings, send=send)
-            if sent:
-                logger.info("Telegram sent: %s", ", ".join(sent))
-            thermal = check_thermal(settings, send=send)
-            if thermal:
-                logger.info("Thermal: %s", ", ".join(thermal))
-            if "kill" in thermal:
-                return
-        except Exception as exc:  # noqa: BLE001 — keep the ledger running
-            logger.info("Telegram alert cycle failed: %s", exc)
-        time.sleep(interval)
+        time.sleep(3600)
 
 
 def _sync_quietly() -> None:
