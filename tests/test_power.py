@@ -10,8 +10,11 @@ def test_describe_power_policy_allow_sleep():
 
 def test_describe_power_policy_idle_only():
     text = describe_power_policy(prevent_idle=True, prevent_display=False, prevent_system=False)
-    assert "idle sleep blocked" in text
-    assert "display may sleep" in text
+    if is_macos():
+        assert "idle sleep blocked" in text
+        assert "display may sleep" in text
+    else:
+        assert "macOS-only" in text
 
 
 def test_caffeinate_probe_does_not_crash():
