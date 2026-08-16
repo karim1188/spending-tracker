@@ -1,0 +1,10 @@
+{
+  "api_id": 123456,
+  "api_hash": "your_telegram_api_hash",
+  "phone": "+9665XXXXXXXX",
+  "chat": "me",
+  "timezone": "Asia/Riyadh",
+  "daily_hour": 21,
+  "daily_minute": 0,
+  "daily_limit_sar": 200
+}

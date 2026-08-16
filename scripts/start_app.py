@@ -14,6 +14,12 @@ from collector.logging_config import setup_logging
 from web.server import HOST, PORT, advertised_urls, serve
 
 
+def _run_telegram_alerts() -> None:
+    from notify.alerts import run_loop
+
+    run_loop(interval=60.0)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Open the local spending ledger")
     parser.add_argument("--host", default=HOST)
@@ -40,6 +46,7 @@ def main() -> int:
         print("[INFO] Bound to localhost only. No cloud. chat.db stays read-only.")
     if not args.no_browser:
         threading.Timer(0.6, lambda: webbrowser.open(urls[0])).start()
+    threading.Thread(target=_run_telegram_alerts, daemon=True).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

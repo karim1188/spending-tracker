@@ -40,6 +40,9 @@ credentials*
 *.pem
 *.key
 tokens.json
+config/telegram.json
+*.session
+session_*
 
 # OS
 .DS_Store

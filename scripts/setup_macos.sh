@@ -77,7 +77,7 @@ fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
 python3 -m pip install --upgrade pip
-python3 -m pip install -e ".[dev]"
+python3 -m pip install -e ".[dev,telegram]"
 
 if command -v cargo >/dev/null 2>&1; then
   echo "==> Building read-only Messages helper (imessage_database)"

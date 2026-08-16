@@ -11,6 +11,7 @@ readme = "README.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+telegram = ["telethon>=1.36"]
 
 [tool.setuptools]
 packages = [
@@ -22,6 +23,7 @@ packages = [
     "models",
     "config",
     "web",
+    "notify",
 ]
 
 [tool.pytest.ini_options]

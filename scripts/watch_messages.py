@@ -57,6 +57,11 @@ def main() -> int:
                         stats.stored,
                         stats.ignored_non_bank,
                     )
+                from notify.alerts import tick
+
+                sent = tick(db)
+                if sent:
+                    logger.info("Telegram sent: %s", ", ".join(sent))
             except MessagesAccessError as exc:
                 logger.info("Read failed: %s", exc)
             except Exception as exc:  # noqa: BLE001 — keep watcher alive

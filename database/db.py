@@ -711,5 +711,66 @@ class SpendingDatabase:
             ],
         }
 
+    def notify_value(self, key: str) -> str | None:
+        row = self.conn.execute(
+            "SELECT value FROM notify_state WHERE key = ?",
+            (key,),
+        ).fetchone()
+        return row["value"] if row else None
+
+    def set_notify_value(self, key: str, value: str) -> None:
+        now = datetime.now(timezone.utc).isoformat(sep=" ")
+        self.conn.execute(
+            """
+            INSERT INTO notify_state (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        self.conn.commit()
+
+    def day_spending_report(self, day: str) -> dict:
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo("Asia/Riyadh")
+        rows = self.conn.execute(
+            """
+            SELECT amount, merchant, category, transaction_time, created_at, transaction_type
+            FROM transactions
+            WHERE amount IS NOT NULL
+              AND IFNULL(transaction_type, '') NOT IN ('salary', 'bank_transfer_in')
+            """
+        ).fetchall()
+        matched = []
+        for row in rows:
+            raw = row["transaction_time"] or row["created_at"]
+            if not raw:
+                continue
+            stamp = datetime.fromisoformat(str(raw).replace(" ", "T"))
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            if stamp.astimezone(tz).date().isoformat() != day:
+                continue
+            matched.append(row)
+        total = sum(float(row["amount"] or 0) for row in matched)
+        by_label: dict[str, float] = {}
+        for row in matched:
+            label = (row["merchant"] or "").strip() or row["category"] or "Other"
+            by_label[label] = by_label.get(label, 0) + float(row["amount"] or 0)
+        merchants = [
+            {"label": label, "total_amount": amount}
+            for label, amount in sorted(by_label.items(), key=lambda item: item[1], reverse=True)[:5]
+        ]
+        return {
+            "day": day,
+            "total_amount": total,
+            "txn_count": len(matched),
+            "merchants": merchants,
+        }
+
+
 
 
