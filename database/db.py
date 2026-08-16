@@ -873,17 +873,23 @@ class SpendingDatabase:
             end = today
             title = f"Day · {today.isoformat()}"
         elif period == "week":
+            # ISO week: Monday → Sunday (never collapse to a single day on Mondays).
             start = today.fromordinal(today.toordinal() - today.weekday())
-            end = today
+            end = start.fromordinal(start.toordinal() + 6)
             title = f"Week · {start.isoformat()} → {end.isoformat()}"
         elif period == "month":
+            import calendar
+
             start = today.replace(day=1)
-            end = today
-            title = f"Month · {today.strftime('%Y-%m')}"
+            end = today.replace(day=calendar.monthrange(today.year, today.month)[1])
+            title = f"Month · {start.isoformat()} → {min(end, today).isoformat()}"
         else:
             start = today.replace(month=1, day=1)
-            end = today
-            title = f"Year · {today.year}"
+            end = today.replace(month=12, day=31)
+            title = f"Year · {start.isoformat()} → {min(end, today).isoformat()}"
+
+        # Spending only counts through today (no future dates).
+        spend_end = min(end, today)
 
         rows = self.conn.execute(
             """
@@ -902,7 +908,7 @@ class SpendingDatabase:
             if when.tzinfo is None:
                 when = when.replace(tzinfo=timezone.utc)
             local_day = when.astimezone(tz).date()
-            if start <= local_day <= end:
+            if start <= local_day <= spend_end:
                 matched.append(row)
 
         total = sum(float(row["amount"] or 0) for row in matched)
@@ -926,6 +932,7 @@ class SpendingDatabase:
             "title": title,
             "start": start.isoformat(),
             "end": end.isoformat(),
+            "spend_end": spend_end.isoformat(),
             "day": today.isoformat() if period == "day" else None,
             "total_amount": total,
             "txn_count": len(matched),

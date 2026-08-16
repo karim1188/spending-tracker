@@ -116,10 +116,27 @@ def test_period_reports_day_week_month_year(tmp_path):
     assert week["total_amount"] == 80
     assert month["total_amount"] == 100
     assert year["total_amount"] == 110
+    assert week["start"] == "2026-08-10"
+    assert week["end"] == "2026-08-16"
+    assert "2026-08-10 → 2026-08-16" in week["title"]
     sent: list[str] = []
     result = send_period_report(db, "month", settings=_settings(), send=sent.append, now=now)
     assert result["ok"] is True
     assert "Month" in sent[0]
     assert "100.00" in sent[0]
     assert "CATEGORIES" in format_period_report(month)
+    db.close()
+
+
+def test_week_report_on_monday_is_not_same_day(tmp_path):
+    db = SpendingDatabase(tmp_path / "spending.db")
+    monday = datetime(2026, 8, 17, 12, 0, tzinfo=RIYADH)
+    _spend(db, "mon", 40, datetime(2026, 8, 17, 8, 0, tzinfo=ZoneInfo("UTC")))
+    _spend(db, "sun", 25, datetime(2026, 8, 16, 8, 0, tzinfo=ZoneInfo("UTC")))
+    week = db.period_spending_report("week", now=monday)
+    assert week["start"] == "2026-08-17"
+    assert week["end"] == "2026-08-23"
+    assert week["start"] != week["end"]
+    assert week["total_amount"] == 40
+    assert "2026-08-17 → 2026-08-23" in week["title"]
     db.close()
