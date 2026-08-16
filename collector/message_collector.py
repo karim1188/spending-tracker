@@ -66,6 +66,10 @@ class MessageCollector:
         return stats
 
     def _process_message(self, message: Message, stats: SyncStats) -> None:
+        if self.db.is_excluded(message.guid):
+            stats.skipped_duplicate += 1
+            logger.info("Skipping excluded PIN/message GUID")
+            return
         if self.db.guid_exists(message.guid):
             stats.skipped_duplicate += 1
             logger.info("Skipping already stored GUID")
@@ -83,7 +87,7 @@ class MessageCollector:
         tx = parser.parse(message)
         if tx is None:
             stats.unknown += 1
-            logger.info("Bank sender but message is not financial; not stored")
+            logger.info("Bank sender but message is PIN or not financial; not stored")
             return
         stats.parsed += 1
         if tx.transaction_type == "unknown":

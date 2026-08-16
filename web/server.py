@@ -20,6 +20,7 @@ HOST = "127.0.0.1"
 PORT = 8787
 _sync_lock = threading.Lock()
 TXN_PATH = re.compile(r"^/api/transactions/(\d+)$")
+EXCLUDE_PATH = re.compile(r"^/api/transactions/(\d+)/exclude$")
 
 
 def row_to_public(row, include_raw: bool = False) -> dict:
@@ -125,6 +126,12 @@ class LedgerHandler(BaseHTTPRequestHandler):
                     bank=body.get("bank") or None,
                 )
             self._send_json({"ok": True})
+            return
+        exclude = EXCLUDE_PATH.match(parsed.path)
+        if exclude:
+            with SpendingDatabase() as db:
+                ok = db.exclude_transaction(int(exclude.group(1)), "excluded from detail page")
+            self._send_json({"ok": ok}, 200 if ok else 404)
             return
         self._send_json({"error": "not found"}, 404)
 

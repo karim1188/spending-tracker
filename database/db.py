@@ -23,6 +23,11 @@ class SpendingDatabase:
         schema = SCHEMA_PATH.read_text(encoding="utf-8")
         self.conn.executescript(schema)
         self.conn.commit()
+        self.exclude_guid(
+            "781A1E6A-0B82-B291-7EEB-ED6DDC8E2788",
+            "SNB activation PIN, not a transfer",
+        )
+        self.purge_pin_messages()
 
     def close(self) -> None:
         self.conn.close()
@@ -196,6 +201,53 @@ class SpendingDatabase:
         cursor = self.conn.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
         self.conn.commit()
         return cursor.rowcount > 0
+
+    def exclude_guid(self, guid: str, reason: str = "excluded") -> None:
+        guid = guid.strip()
+        if not guid:
+            return
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO excluded_messages (guid, reason) VALUES (?, ?)
+            """,
+            (guid, reason),
+        )
+        self.conn.execute(
+            "DELETE FROM transactions WHERE source_message_guid = ?",
+            (guid,),
+        )
+        self.conn.commit()
+
+    def is_excluded(self, guid: str) -> bool:
+        if not guid:
+            return False
+        row = self.conn.execute(
+            "SELECT 1 FROM excluded_messages WHERE guid = ? LIMIT 1",
+            (guid,),
+        ).fetchone()
+        return row is not None
+
+    def exclude_transaction(self, txn_id: int, reason: str = "excluded") -> bool:
+        row = self.get_transaction(txn_id)
+        if not row:
+            return False
+        self.exclude_guid(row["source_message_guid"], reason)
+        return True
+
+    def purge_pin_messages(self) -> int:
+        from parsers.generic import looks_non_financial
+
+        rows = self.conn.execute(
+            "SELECT id, raw_message FROM transactions WHERE raw_message IS NOT NULL"
+        ).fetchall()
+        removed = 0
+        for row in rows:
+            if looks_non_financial(row["raw_message"]):
+                self.conn.execute("DELETE FROM transactions WHERE id = ?", (row["id"],))
+                removed += 1
+        if removed:
+            self.conn.commit()
+        return removed
 
     def purge_duplicates(self) -> int:
         before = self.conn.execute("SELECT COUNT(*) AS n FROM transactions").fetchone()["n"]

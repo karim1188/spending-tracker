@@ -58,3 +58,23 @@ def test_year_filter_and_duplicates_and_sender_rule(tmp_path):
     assert db.sender_rule("SNB-AlAhli")["category"] == "Shopping"
     assert db.delete_transaction(row["id"]) is True
     db.close()
+
+
+def test_activation_pin_guid_is_removed_on_init(tmp_path):
+    db = SpendingDatabase(tmp_path / "spending.db")
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="781A1E6A-0B82-B291-7EEB-ED6DDC8E2788",
+            bank="SNB",
+            sender="SNB-AlAhli",
+            transaction_type="unknown",
+            amount=1000,
+            currency="SAR",
+            raw_message="لا تشارك رمز التفعيل 1093\nتحويل لبنك محلي\nمبلغ SAR 1000",
+        )
+    )
+    db.close()
+    db = SpendingDatabase(tmp_path / "spending.db")
+    assert db.is_excluded("781A1E6A-0B82-B291-7EEB-ED6DDC8E2788")
+    assert db.list_transactions() == []
+    db.close()

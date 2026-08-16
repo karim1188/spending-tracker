@@ -140,6 +140,17 @@ def test_mobily_pay_purchase():
     assert tx.merchant == "HungerStation"
 
 
+def test_snb_activation_pin_is_not_a_transaction():
+    registry = make_bank_registry(SNB=("SNB-AlAhli",))
+    parser = SnbParser(registry)
+    message = _msg(
+        "SNB-AlAhli",
+        "لا تشارك رمز التفعيل 1093\nتحويل لبنك محلي\nمبلغ SAR 1000",
+        guid="781A1E6A-0B82-B291-7EEB-ED6DDC8E2788",
+    )
+    assert parser.parse(message) is None
+
+
 def test_committed_banks_json_has_user_senders():
     from config.loader import BankRegistry
 

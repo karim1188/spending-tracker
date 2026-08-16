@@ -26,6 +26,7 @@ const ruleCategory = document.getElementById("rule-category");
 const ruleBank = document.getElementById("rule-bank");
 const senderForm = document.getElementById("sender-form");
 const deleteBtn = document.getElementById("delete-btn");
+const excludeBtn = document.getElementById("exclude-btn");
 
 let filterCatalog = { years: [], banks: [], senders: [], categories: [], types: [], all_categories: [] };
 let currentTxnId = null;
@@ -282,6 +283,17 @@ senderForm.addEventListener("submit", async (event) => {
   }
   setStatus(`Saved category for sender ${ruleSender.value}. Future SMS from this sender will use it.`);
   if (currentTxnId) showDetail(currentTxnId);
+});
+
+excludeBtn.addEventListener("click", async () => {
+  if (!currentTxnId) return;
+  const response = await fetch(`/api/transactions/${currentTxnId}/exclude`, { method: "POST" });
+  if (!response.ok) {
+    setStatus("Could not exclude this message", true);
+    return;
+  }
+  setStatus("Excluded. This PIN/SMS will not be imported again.");
+  location.hash = "#/";
 });
 
 deleteBtn.addEventListener("click", async () => {

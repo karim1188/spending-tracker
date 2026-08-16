@@ -43,6 +43,12 @@ CREATE INDEX IF NOT EXISTS idx_transactions_time ON transactions (transaction_ti
 CREATE INDEX IF NOT EXISTS idx_transactions_bank ON transactions (bank);
 CREATE INDEX IF NOT EXISTS idx_bank_senders_sender ON bank_senders (sender);
 
+CREATE TABLE IF NOT EXISTS excluded_messages (
+    guid TEXT PRIMARY KEY,
+    reason TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS sender_rules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sender TEXT NOT NULL UNIQUE,
