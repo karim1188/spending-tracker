@@ -119,3 +119,82 @@ class SpendingDatabase:
             "SELECT pattern, category FROM merchant_rules ORDER BY LENGTH(pattern) DESC"
         ).fetchall()
         return [(row["pattern"], row["category"]) for row in rows]
+
+    def list_transactions(
+        self,
+        limit: int = 200,
+        bank: str | None = None,
+        category: str | None = None,
+    ) -> list[sqlite3.Row]:
+        sql = [
+            """
+            SELECT id, bank, sender, transaction_type, amount, currency, merchant,
+                   card_last4, account_last4, transaction_time, balance, category,
+                   created_at
+            FROM transactions
+            WHERE 1=1
+            """
+        ]
+        params: list[object] = []
+        if bank:
+            sql.append("AND bank = ?")
+            params.append(bank)
+        if category:
+            sql.append("AND category = ?")
+            params.append(category)
+        sql.append("ORDER BY COALESCE(transaction_time, created_at) DESC, id DESC")
+        sql.append("LIMIT ?")
+        params.append(limit)
+        return self.conn.execute("\n".join(sql), params).fetchall()
+
+    def summary(self) -> dict:
+        total_row = self.conn.execute(
+            """
+            SELECT
+                COUNT(*) AS txn_count,
+                COALESCE(SUM(CASE WHEN amount IS NOT NULL THEN amount ELSE 0 END), 0) AS total_amount
+            FROM transactions
+            """
+        ).fetchone()
+        month_row = self.conn.execute(
+            """
+            SELECT
+                COUNT(*) AS txn_count,
+                COALESCE(SUM(CASE WHEN amount IS NOT NULL THEN amount ELSE 0 END), 0) AS total_amount
+            FROM transactions
+            WHERE strftime('%Y-%m', COALESCE(transaction_time, created_at)) = strftime('%Y-%m', 'now')
+            """
+        ).fetchone()
+        by_category = self.conn.execute(
+            """
+            SELECT COALESCE(category, 'Other') AS label,
+                   COUNT(*) AS txn_count,
+                   COALESCE(SUM(amount), 0) AS total_amount
+            FROM transactions
+            GROUP BY COALESCE(category, 'Other')
+            ORDER BY total_amount DESC
+            """
+        ).fetchall()
+        by_bank = self.conn.execute(
+            """
+            SELECT COALESCE(bank, 'Unknown') AS label,
+                   COUNT(*) AS txn_count,
+                   COALESCE(SUM(amount), 0) AS total_amount
+            FROM transactions
+            GROUP BY COALESCE(bank, 'Unknown')
+            ORDER BY total_amount DESC
+            """
+        ).fetchall()
+        checkpoint = self.conn.execute(
+            "SELECT source, last_message_id, last_checked_at FROM collector_state"
+        ).fetchall()
+        return {
+            "txn_count": int(total_row["txn_count"]),
+            "total_amount": float(total_row["total_amount"]),
+            "month_count": int(month_row["txn_count"]),
+            "month_amount": float(month_row["total_amount"]),
+            "by_category": [dict(row) for row in by_category],
+            "by_bank": [dict(row) for row in by_bank],
+            "checkpoint": [dict(row) for row in checkpoint],
+        }
+

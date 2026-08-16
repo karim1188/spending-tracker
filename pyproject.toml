@@ -21,6 +21,7 @@ packages = [
     "database",
     "models",
     "config",
+    "web",
 ]
 
 [tool.pytest.ini_options]

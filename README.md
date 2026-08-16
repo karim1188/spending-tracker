@@ -2,7 +2,14 @@
 
 Read bank SMS from Apple Messages on a Mac, parse them on-device, and store structured transactions in a local SQLite database.
 
-Nothing is uploaded. Apple's Messages database is opened **read-only**. There is no UI in this milestone.
+Open the local ledger in a browser:
+
+```bash
+source .venv/bin/activate
+python3 scripts/start_app.py
+```
+
+It binds to `http://127.0.0.1:8787` only. Nothing is uploaded. Apple's Messages database stays **read-only**.
 
 ## Clone on your Mac
 
@@ -151,23 +158,21 @@ Copy **only** confirmed bank short codes into `config/banks.json`. Do not invent
 
 If a bank uses a different SMS name (for example `AlAhli` instead of `SNB`), put that exact name in the matching `senders` list.
 
-### 6. Import transactions
+### 6. Open the app
+
+```bash
+source .venv/bin/activate
+python3 scripts/start_app.py
+```
+
+The browser opens `http://127.0.0.1:8787`. Click **Sync Messages** in the ledger. Stop with CTRL+C in Terminal.
+
+Command-line import still works:
 
 ```bash
 python3 scripts/sync_messages.py
 python3 scripts/show_transactions.py
-```
-
-Watch for new SMS (CTRL+C to stop):
-
-```bash
 python3 scripts/watch_messages.py --interval 5
-```
-
-Reset the collector cursor if you change bank senders and want to rescan (duplicates are still blocked by message GUID):
-
-```bash
-python3 scripts/sync_messages.py --reset-checkpoint
 ```
 
 ## Privacy and safety
@@ -196,6 +201,7 @@ categorizer/        local merchant rules
 database/           spending SQLite schema (not chat.db)
 config/banks.json   bank sender allow-list
 scripts/            Mac commands
+web/                local ledger UI (localhost only)
 ```
 
 See `docs/ARCHITECTURE_ANALYSIS.md` for how `imessage-exporter` / `imessage_database` is reused.

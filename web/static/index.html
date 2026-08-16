@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Private Ledger — Spending Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Literata:opsz,wght@7..72,480;7..72,650&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+  <header class="mast">
+    <div class="mast-mark">
+      <span class="kicker">Local · Read-only Messages</span>
+      <h1>Private<br>Ledger</h1>
+    </div>
+    <div class="mast-actions">
+      <p class="mast-note">SAR spending from bank SMS on this Mac. Nothing leaves the machine.</p>
+      <button id="sync-btn" class="btn" type="button">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 6V3L8 7l4 4V8c2.76 0 5 2.24 5 5a5 5 0 0 1-8.9 3.1L6.7 17.5A7 7 0 0 0 19 13c0-3.87-3.13-7-7-7zm-7 7c0-1.07.24-2.08.67-3L4.26 8.59A8.96 8.96 0 0 0 3 13a7 7 0 0 0 12.3 4.5l-1.4-1.4A5 5 0 0 1 5 13z"/></svg>
+        Sync Messages
+      </button>
+    </div>
+  </header>
+
+  <section class="status-strip" id="status-strip" hidden></section>
+
+  <main>
+    <section class="hero-metrics" aria-label="Totals">
+      <article class="metric metric-primary">
+        <p class="metric-label">This month</p>
+        <p class="metric-value" id="month-amount">—</p>
+        <p class="metric-sub" id="month-count">waiting for sync</p>
+      </article>
+      <article class="metric">
+        <p class="metric-label">All imported</p>
+        <p class="metric-value small" id="total-amount">—</p>
+        <p class="metric-sub" id="total-count">0 transactions</p>
+      </article>
+      <article class="metric">
+        <p class="metric-label">Last cursor</p>
+        <p class="metric-value small" id="checkpoint">—</p>
+        <p class="metric-sub" id="checked-at">not synced</p>
+      </article>
+    </section>
+
+    <section class="split">
+      <article class="panel">
+        <header class="panel-head">
+          <h2>By category</h2>
+        </header>
+        <div id="category-bars" class="bars"></div>
+      </article>
+      <article class="panel">
+        <header class="panel-head">
+          <h2>By bank</h2>
+        </header>
+        <div id="bank-bars" class="bars"></div>
+      </article>
+    </section>
+
+    <section class="panel ledger-panel">
+      <header class="panel-head">
+        <h2>Ledger</h2>
+        <div class="filters">
+          <label>
+            Bank
+            <select id="filter-bank">
+              <option value="">All</option>
+            </select>
+          </label>
+          <label>
+            Category
+            <select id="filter-category">
+              <option value="">All</option>
+            </select>
+          </label>
+        </div>
+      </header>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Bank</th>
+              <th>Merchant</th>
+              <th>Type</th>
+              <th>Category</th>
+              <th class="num">Amount</th>
+            </tr>
+          </thead>
+          <tbody id="txn-body">
+            <tr><td colspan="6" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
