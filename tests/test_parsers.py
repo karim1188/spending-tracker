@@ -112,3 +112,38 @@ def test_wrong_sender_rejected():
     message = _msg("Amazon", "شراء بمبلغ 74.50 SAR من HungerStation بطاقة *1234")
     assert parser.can_parse(message) is False
     assert parser.parse(message) is None
+
+
+def test_snb_alahli_sender_parses():
+    registry = make_bank_registry(SNB=("SNB-AlAhli",))
+    parser = SnbParser(registry)
+    message = _msg("SNB-AlAhli", "شراء بمبلغ 74.50 SAR من HungerStation بطاقة *1234")
+    assert parser.can_parse(message)
+    tx = parser.parse(message)
+    assert tx is not None
+    assert tx.bank == "SNB"
+    assert tx.amount == 74.50
+
+
+def test_mobily_pay_purchase():
+    from parsers.banks.mobily import MobilyPayParser
+
+    registry = make_bank_registry(MobilyPay=("Mobily Pay",))
+    parser = MobilyPayParser(registry)
+    message = _msg("Mobily Pay", "Purchase 32.00 SAR at HungerStation")
+    assert parser.can_parse(message)
+    tx = parser.parse(message)
+    assert tx is not None
+    assert tx.bank == "MobilyPay"
+    assert tx.amount == 32.0
+    assert tx.currency == "SAR"
+    assert tx.merchant == "HungerStation"
+
+
+def test_committed_banks_json_has_user_senders():
+    from config.loader import BankRegistry
+
+    registry = BankRegistry.load()
+    assert registry.bank_for_sender("SNB-AlAhli") == "SNB"
+    assert registry.bank_for_sender("Mobily Pay") == "MobilyPay"
+

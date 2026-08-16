@@ -1,7 +1,7 @@
 {
   "banks": {
     "SNB": {
-      "senders": []
+      "senders": ["SNB-AlAhli"]
     },
     "AlRajhi": {
       "senders": []
@@ -14,6 +14,9 @@
     },
     "Alinma": {
       "senders": []
+    },
+    "MobilyPay": {
+      "senders": ["Mobily Pay"]
     }
   }
 }

@@ -18,6 +18,18 @@ def test_bank_detection_by_configured_sender():
     assert detector.detect(_msg("Amazon", "شراء 10.00 SAR")) is None
 
 
+def test_snb_alahli_and_mobily_pay_senders():
+    registry = make_bank_registry(SNB=("SNB-AlAhli",), MobilyPay=("Mobily Pay",))
+    detector = BankDetector(registry)
+    assert detector.is_bank_sender("SNB-AlAhli")
+    assert detector.is_bank_sender("SNB-AlAhli.")
+    assert detector.is_bank_sender("Mobily Pay")
+    snb = detector.detect(_msg("SNB-AlAhli", "شراء بمبلغ 20.00 SAR من HungerStation"))
+    assert snb is not None and snb.bank_name == "SNB"
+    mobily = detector.detect(_msg("Mobily Pay", "Purchase 15.50 SAR at Jahez"))
+    assert mobily is not None and mobily.bank_name == "MobilyPay"
+
+
 def test_categorizer_merchant_rules():
     cat = Categorizer()
     assert cat.categorize("HungerStation") == "Food & Dining"

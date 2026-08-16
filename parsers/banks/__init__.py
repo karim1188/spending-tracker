@@ -1,5 +1,6 @@
 from parsers.banks.alinma import AlinmaParser
 from parsers.banks.alrajhi import AlRajhiParser
+from parsers.banks.mobily import MobilyPayParser
 from parsers.banks.riyad import RiyadParser
 from parsers.banks.sab import SabParser
 from parsers.banks.snb import SnbParser
@@ -10,4 +11,5 @@ __all__ = [
     "RiyadParser",
     "SabParser",
     "AlinmaParser",
+    "MobilyPayParser",
 ]

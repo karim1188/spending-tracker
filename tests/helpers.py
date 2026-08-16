@@ -7,7 +7,7 @@ from pathlib import Path
 from collector.macos_access import APPLE_EPOCH, TIMESTAMP_FACTOR
 from config.loader import BankConfig, BankRegistry
 
-BANK_NAMES = ("SNB", "AlRajhi", "RiyadBank", "SAB", "Alinma")
+BANK_NAMES = ("SNB", "AlRajhi", "RiyadBank", "SAB", "Alinma", "MobilyPay")
 
 
 def unix_to_apple(dt: datetime) -> int:

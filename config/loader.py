@@ -13,13 +13,17 @@ class BankConfig:
     senders: tuple[str, ...]
 
 
+def normalize_sender(sender: str) -> str:
+    return sender.strip().strip(".").casefold()
+
+
 class BankRegistry:
     def __init__(self, banks: dict[str, BankConfig]):
         self.banks = banks
         self._sender_to_bank: dict[str, str] = {}
         for bank in banks.values():
             for sender in bank.senders:
-                self._sender_to_bank[sender.casefold()] = bank.name
+                self._sender_to_bank[normalize_sender(sender)] = bank.name
 
     @classmethod
     def load(cls, path: Path | None = None) -> BankRegistry:
@@ -35,7 +39,7 @@ class BankRegistry:
     def bank_for_sender(self, sender: str) -> str | None:
         if not sender:
             return None
-        return self._sender_to_bank.get(sender.casefold())
+        return self._sender_to_bank.get(normalize_sender(sender))
 
     def configured_senders(self) -> list[str]:
         senders: list[str] = []
