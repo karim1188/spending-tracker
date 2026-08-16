@@ -10,6 +10,20 @@ from models.transaction import Transaction
 NON_SPENDING_TYPES = ("salary", "bank_transfer_in")
 
 COLLECTOR_SOURCE = "macos_messages"
+MONTH_LABELS = (
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+)
+
+
+def _month_label(period: str) -> str:
+    try:
+        month = int(period.split("-")[1])
+    except (IndexError, ValueError):
+        return period
+    if 1 <= month <= 12:
+        return MONTH_LABELS[month - 1]
+    return period
 
 
 class SpendingDatabase:
@@ -469,6 +483,112 @@ class SpendingDatabase:
             "recurring_monthly": rec["monthly_total"],
             "recurring_count": rec["item_count"],
         }
+
+    def dashboard(
+        self,
+        year: str | None = None,
+        month: str | None = None,
+        bank: str | None = None,
+    ) -> dict:
+        extra, params = self._period_clause(year, month, bank)
+        income_sql = "transaction_type IN ('salary', 'bank_transfer_in')"
+        spend_sql = "IFNULL(transaction_type, '') NOT IN ('salary', 'bank_transfer_in')"
+        totals = self.conn.execute(
+            f"""
+            SELECT
+                COALESCE(SUM(CASE WHEN {income_sql} THEN amount ELSE 0 END), 0) AS income,
+                COALESCE(SUM(CASE WHEN {spend_sql} THEN amount ELSE 0 END), 0) AS spending,
+                COALESCE(SUM(CASE WHEN transaction_type = 'salary' THEN amount ELSE 0 END), 0) AS salary,
+                COALESCE(SUM(CASE WHEN transaction_type = 'bank_transfer_in' THEN amount ELSE 0 END), 0) AS transfers_in,
+                COUNT(*) AS txn_count
+            FROM transactions
+            WHERE amount IS NOT NULL
+            {extra}
+            """,
+            params,
+        ).fetchone()
+        income = float(totals["income"])
+        spending = float(totals["spending"])
+        by_category = self.conn.execute(
+            f"""
+            SELECT COALESCE(category, 'Other') AS label,
+                   COALESCE(SUM(amount), 0) AS total_amount
+            FROM transactions
+            WHERE amount IS NOT NULL AND {spend_sql}
+            {extra}
+            GROUP BY COALESCE(category, 'Other')
+            ORDER BY total_amount DESC
+            """,
+            params,
+        ).fetchall()
+        month_extra, month_params = self._period_clause(year, None, bank)
+        month_rows = self.conn.execute(
+            f"""
+            SELECT strftime('%Y-%m', COALESCE(transaction_time, created_at)) AS period,
+                   COALESCE(SUM(CASE WHEN {income_sql} THEN amount ELSE 0 END), 0) AS income,
+                   COALESCE(SUM(CASE WHEN {spend_sql} THEN amount ELSE 0 END), 0) AS spending
+            FROM transactions
+            WHERE amount IS NOT NULL
+              AND COALESCE(transaction_time, created_at) IS NOT NULL
+            {month_extra}
+            GROUP BY period
+            ORDER BY period
+            """,
+            month_params,
+        ).fetchall()
+        lookup = {row["period"]: row for row in month_rows if row["period"]}
+        by_month = []
+        for period in self._dashboard_periods(year):
+            row = lookup.get(period)
+            by_month.append(
+                {
+                    "period": period,
+                    "label": _month_label(period),
+                    "income": float(row["income"]) if row else 0.0,
+                    "spending": float(row["spending"]) if row else 0.0,
+                }
+            )
+        balance_row = self.conn.execute(
+            f"""
+            SELECT balance, COALESCE(transaction_time, created_at) AS stamp, bank
+            FROM transactions
+            WHERE balance IS NOT NULL
+            {extra}
+            ORDER BY COALESCE(transaction_time, created_at) DESC, id DESC
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+        rec = self.recurring_summary()
+        return {
+            "income": income,
+            "spending": spending,
+            "net": income - spending,
+            "salary": float(totals["salary"]),
+            "transfers_in": float(totals["transfers_in"]),
+            "txn_count": int(totals["txn_count"]),
+            "latest_balance": float(balance_row["balance"]) if balance_row else None,
+            "latest_balance_at": balance_row["stamp"] if balance_row else None,
+            "latest_balance_bank": balance_row["bank"] if balance_row else None,
+            "by_category": [dict(row) for row in by_category],
+            "by_month": by_month,
+            "recurring_monthly": rec["monthly_total"],
+        }
+
+    def _dashboard_periods(self, year: str | None) -> list[str]:
+        if year:
+            return [f"{year}-{month:02d}" for month in range(1, 13)]
+        today = datetime.now(timezone.utc)
+        year_n, month_n = today.year, today.month
+        periods: list[str] = []
+        for _ in range(12):
+            periods.append(f"{year_n}-{month_n:02d}")
+            month_n -= 1
+            if month_n == 0:
+                month_n = 12
+                year_n -= 1
+        periods.reverse()
+        return periods
 
     def recurring_key(self, row: sqlite3.Row) -> str:
         merchant = (row["merchant"] or "").strip().upper()

@@ -16,6 +16,7 @@
       <span class="kicker">Local network · Read-only Messages</span>
       <h1>Private<br>Ledger</h1>
       <nav class="nav-links" aria-label="Pages">
+        <a href="#/dashboard" id="nav-dashboard">Dashboard</a>
         <a href="#/" id="nav-ledger">Ledger</a>
         <a href="#/recurring" id="nav-recurring">Recurring</a>
       </nav>
@@ -30,6 +31,80 @@
   </header>
 
   <section class="status-strip" id="status-strip" hidden></section>
+
+  <main id="view-dashboard" hidden>
+    <section class="dash-toolbar">
+      <h2 class="dash-title">Dashboard</h2>
+      <div class="filters dash-filters">
+        <label>Year
+          <select id="dash-year"><option value="">All years</option></select>
+        </label>
+        <label>Month
+          <select id="dash-month">
+            <option value="">All months</option>
+            <option value="01">January</option>
+            <option value="02">February</option>
+            <option value="03">March</option>
+            <option value="04">April</option>
+            <option value="05">May</option>
+            <option value="06">June</option>
+            <option value="07">July</option>
+            <option value="08">August</option>
+            <option value="09">September</option>
+            <option value="10">October</option>
+            <option value="11">November</option>
+            <option value="12">December</option>
+          </select>
+        </label>
+        <label>Bank
+          <select id="dash-bank"><option value="">All banks</option></select>
+        </label>
+      </div>
+    </section>
+    <section class="hero-metrics dash-hero" aria-label="Income and spending">
+      <article class="metric metric-in">
+        <p class="metric-label">Money in</p>
+        <p class="metric-value" id="dash-income">—</p>
+        <p class="metric-sub" id="dash-income-sub">salary and incoming transfers</p>
+      </article>
+      <article class="metric metric-out">
+        <p class="metric-label">Spending</p>
+        <p class="metric-value" id="dash-spend">—</p>
+        <p class="metric-sub" id="dash-spend-sub">outgoing transactions</p>
+      </article>
+      <article class="metric">
+        <p class="metric-label">Left over</p>
+        <p class="metric-value small" id="dash-net">—</p>
+        <p class="metric-sub" id="dash-net-sub">in minus spending</p>
+      </article>
+      <article class="metric">
+        <p class="metric-label">Last SMS balance</p>
+        <p class="metric-value small" id="dash-balance">—</p>
+        <p class="metric-sub" id="dash-balance-sub">from the latest bank message</p>
+      </article>
+    </section>
+    <section class="panel chart-panel">
+      <header class="panel-head">
+        <h2>Income vs spending</h2>
+        <p class="chart-legend"><span class="swatch in"></span> In <span class="swatch out"></span> Spending</p>
+      </header>
+      <div id="dash-flow" class="chart-wrap"></div>
+    </section>
+    <section class="split">
+      <article class="panel">
+        <header class="panel-head">
+          <h2>Where spending went</h2>
+        </header>
+        <div id="dash-donut" class="chart-wrap"></div>
+      </article>
+      <article class="panel">
+        <header class="panel-head">
+          <h2>Income mix</h2>
+        </header>
+        <div id="dash-income-mix" class="bars"></div>
+      </article>
+    </section>
+  </main>
 
   <main id="view-ledger">
     <section class="hero-metrics" aria-label="Totals">

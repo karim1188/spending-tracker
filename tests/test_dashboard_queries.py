@@ -209,3 +209,58 @@ def test_recurring_monthly_bills_do_not_double_count(tmp_path):
     ).fetchone()["id"]
     assert db.mark_recurring(salary_id) is None
     db.close()
+
+
+def test_dashboard_income_versus_spending(tmp_path):
+    db = SpendingDatabase(tmp_path / "spending.db")
+    when = datetime(2026, 8, 2, 9, 0, tzinfo=timezone.utc)
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="sal-d",
+            bank="SNB",
+            transaction_type="salary",
+            amount=12000,
+            currency="SAR",
+            category="Salary",
+            balance=18500,
+            transaction_time=when,
+            raw_message="حوالة واردة راتب مبلغ SAR 12000",
+        )
+    )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="in-d",
+            bank="SNB",
+            transaction_type="bank_transfer_in",
+            amount=400,
+            currency="SAR",
+            category="Transfers",
+            transaction_time=when,
+            raw_message="حوالة واردة مبلغ SAR 400",
+        )
+    )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="out-d",
+            bank="SNB",
+            transaction_type="card_purchase",
+            amount=250,
+            currency="SAR",
+            merchant="HungerStation",
+            category="Food & Dining",
+            transaction_time=when,
+        )
+    )
+    dash = db.dashboard()
+    assert dash["income"] == 12400
+    assert dash["salary"] == 12000
+    assert dash["transfers_in"] == 400
+    assert dash["spending"] == 250
+    assert dash["net"] == 12150
+    assert dash["latest_balance"] == 18500
+    year_dash = db.dashboard(year="2026")
+    august = next(row for row in year_dash["by_month"] if row["period"] == "2026-08")
+    assert august["income"] == 12400
+    assert august["spending"] == 250
+    assert db.dashboard(year="2025")["income"] == 0
+    db.close()

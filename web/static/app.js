@@ -35,6 +35,22 @@ const recurringPageYear = document.getElementById("recurring-page-year");
 const recurringPageCount = document.getElementById("recurring-page-count");
 const navLedger = document.getElementById("nav-ledger");
 const navRecurring = document.getElementById("nav-recurring");
+const navDashboard = document.getElementById("nav-dashboard");
+const viewDashboard = document.getElementById("view-dashboard");
+const dashYear = document.getElementById("dash-year");
+const dashMonth = document.getElementById("dash-month");
+const dashBank = document.getElementById("dash-bank");
+const dashIncome = document.getElementById("dash-income");
+const dashIncomeSub = document.getElementById("dash-income-sub");
+const dashSpend = document.getElementById("dash-spend");
+const dashSpendSub = document.getElementById("dash-spend-sub");
+const dashNet = document.getElementById("dash-net");
+const dashNetSub = document.getElementById("dash-net-sub");
+const dashBalance = document.getElementById("dash-balance");
+const dashBalanceSub = document.getElementById("dash-balance-sub");
+const dashFlow = document.getElementById("dash-flow");
+const dashDonut = document.getElementById("dash-donut");
+const dashIncomeMix = document.getElementById("dash-income-mix");
 const deleteBtn = document.getElementById("delete-btn");
 const excludeBtn = document.getElementById("exclude-btn");
 
@@ -108,6 +124,71 @@ function fillSelect(select, values, current, blankLabel) {
   select.innerHTML = options.join("");
 }
 
+function renderColumnChart(target, rows) {
+  if (!rows.length || rows.every((row) => !row.income && !row.spending)) {
+    target.innerHTML = '<p class="empty">No income or spending in this period.</p>';
+    return;
+  }
+  const width = 720;
+  const height = 240;
+  const left = 8;
+  const right = 8;
+  const top = 18;
+  const bottom = 32;
+  const innerW = width - left - right;
+  const innerH = height - top - bottom;
+  const max = Math.max(...rows.flatMap((row) => [Number(row.income) || 0, Number(row.spending) || 0]), 1);
+  const groupW = innerW / rows.length;
+  const barW = Math.max(4, groupW * 0.32);
+  const columns = rows.map((row, index) => {
+    const x = left + index * groupW + groupW * 0.18;
+    const inH = ((Number(row.income) || 0) / max) * innerH;
+    const outH = ((Number(row.spending) || 0) / max) * innerH;
+    return `
+      <rect class="col-in" x="${x}" y="${top + innerH - inH}" width="${barW}" height="${inH}"></rect>
+      <rect class="col-out" x="${x + barW + 3}" y="${top + innerH - outH}" width="${barW}" height="${outH}"></rect>
+      <text x="${x + barW}" y="${height - 10}" text-anchor="middle">${row.label}</text>
+    `;
+  }).join("");
+  target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Income versus spending by month">
+    <line x1="${left}" y1="${top + innerH}" x2="${width - right}" y2="${top + innerH}" stroke="currentColor" stroke-opacity="0.25"></line>
+    ${columns}
+  </svg>`;
+}
+
+function renderDonut(target, rows) {
+  if (!rows.length) {
+    target.innerHTML = '<p class="empty">No spending to chart yet.</p>';
+    return;
+  }
+  const colors = ["#c45c26", "#4f5d3c", "#16130f", "#8d3a12", "#cbbfa6", "#6d5a3c", "#2f3a28"];
+  const total = rows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0) || 1;
+  const radius = 52;
+  const circ = 2 * Math.PI * radius;
+  let offset = 0;
+  const rings = rows.map((row, index) => {
+    const value = Number(row.total_amount || 0);
+    const dash = (value / total) * circ;
+    const slice = `<circle cx="70" cy="70" r="${radius}" fill="none" stroke="${colors[index % colors.length]}"
+      stroke-width="18" stroke-dasharray="${dash} ${circ - dash}" stroke-dashoffset="${-offset}"></circle>`;
+    offset += dash;
+    return slice;
+  }).join("");
+  const legend = rows.map((row, index) => `
+    <div><span><span class="donut-dot" style="background:${colors[index % colors.length]}"></span>${row.label}</span>
+    <span>${sar(row.total_amount)}</span></div>
+  `).join("");
+  target.innerHTML = `<div class="donut-layout">
+    <svg viewBox="0 0 140 140" role="img" aria-label="Spending by category">
+      <circle cx="70" cy="70" r="${radius}" fill="none" stroke="rgba(22,19,15,0.08)" stroke-width="18"></circle>
+      <g transform="rotate(-90 70 70)">${rings}</g>
+      <text x="70" y="66" text-anchor="middle" font-size="9" fill="#4a4338">SPEND</text>
+      <text x="70" y="82" text-anchor="middle" font-size="11" font-weight="600">${Math.round(total)}</text>
+    </svg>
+    <div class="donut-legend">${legend}</div>
+  </div>`;
+}
+
 function renderBars(target, rows, maxValue) {
   if (!rows.length) {
     target.innerHTML = '<p class="empty">No amounts yet.</p>';
@@ -131,6 +212,8 @@ async function loadFilters() {
   fillSelect(filterCategory, filterCatalog.categories || [], filterCategory.value, "All");
   fillSelect(filterType, filterCatalog.types || [], filterType.value, "All");
   fillSelect(ruleCategory, filterCatalog.all_categories || [], ruleCategory.value, "Choose category");
+  fillSelect(dashYear, filterCatalog.years || [], dashYear.value, "All years");
+  fillSelect(dashBank, filterCatalog.banks || [], dashBank.value, "All banks");
 }
 
 async function loadSummary() {
@@ -220,11 +303,13 @@ function hideViews() {
   viewLedger.hidden = true;
   viewDetail.hidden = true;
   viewRecurring.hidden = true;
+  viewDashboard.hidden = true;
 }
 
 function setNav(page) {
   navLedger.classList.toggle("active", page === "ledger");
   navRecurring.classList.toggle("active", page === "recurring");
+  navDashboard.classList.toggle("active", page === "dashboard");
 }
 
 function showLedger() {
@@ -232,6 +317,45 @@ function showLedger() {
   hideViews();
   setNav("ledger");
   viewLedger.hidden = false;
+}
+
+async function showDashboard() {
+  currentTxnId = null;
+  hideViews();
+  setNav("dashboard");
+  viewDashboard.hidden = false;
+  await loadFilters();
+  const params = new URLSearchParams();
+  if (dashYear.value) params.set("year", dashYear.value);
+  if (dashMonth.value) params.set("month", dashMonth.value);
+  if (dashBank.value) params.set("bank", dashBank.value);
+  const response = await fetch(`/api/dashboard?${params.toString()}`);
+  const data = await response.json();
+  dashIncome.textContent = sar(data.income);
+  dashIncomeSub.textContent = `salary ${sar(data.salary)} · transfers in ${sar(data.transfers_in)}`;
+  dashSpend.textContent = sar(data.spending);
+  dashSpendSub.textContent = data.recurring_monthly
+    ? `includes ${sar(data.recurring_monthly)} marked as monthly bills`
+    : "outgoing transactions";
+  dashNet.textContent = sar(data.net);
+  dashNet.classList.toggle("net-neg", data.net < 0);
+  dashNet.classList.toggle("net-pos", data.net >= 0);
+  dashNetSub.textContent = data.net >= 0 ? "in minus spending" : "spent more than came in";
+  if (data.latest_balance == null) {
+    dashBalance.textContent = "—";
+    dashBalanceSub.textContent = "no balance in SMS yet";
+  } else {
+    dashBalance.textContent = sar(data.latest_balance);
+    dashBalanceSub.textContent = data.latest_balance_bank
+      ? `${data.latest_balance_bank}${data.latest_balance_at ? " · " + when(data.latest_balance_at) : ""}`
+      : "from the latest bank message";
+  }
+  renderColumnChart(dashFlow, data.by_month || []);
+  renderDonut(dashDonut, data.by_category || []);
+  renderBars(dashIncomeMix, [
+    { label: "Salary", total_amount: data.salary },
+    { label: "Incoming transfers", total_amount: data.transfers_in },
+  ].filter((row) => Number(row.total_amount) > 0), Math.max(data.salary, data.transfers_in, 1));
 }
 
 async function showRecurring() {
@@ -264,6 +388,10 @@ async function showRecurring() {
 }
 
 function route() {
+  if (location.hash === "#/dashboard") {
+    showDashboard();
+    return;
+  }
   if (location.hash === "#/recurring") {
     showRecurring();
     return;
@@ -295,6 +423,12 @@ txnBody.addEventListener("click", (event) => {
   });
 });
 
+[dashYear, dashMonth, dashBank].forEach((el) => {
+  el.addEventListener("change", () => {
+    if (location.hash === "#/dashboard") showDashboard();
+  });
+});
+
 syncBtn.addEventListener("click", async () => {
   syncBtn.disabled = true;
   setStatus("Reading Messages database in READ ONLY mode…");
@@ -306,7 +440,9 @@ syncBtn.addEventListener("click", async () => {
       return;
     }
     setStatus(`Synced. Scanned ${data.scanned}, stored ${data.stored}, ignored ${data.ignored_non_bank}, skipped duplicates ${data.duplicates}.`);
-    await refresh();
+    if (location.hash === "#/dashboard") await showDashboard();
+    else if (location.hash === "#/recurring") await showRecurring();
+    else await refresh();
   } catch (error) {
     setStatus(String(error), true);
   } finally {

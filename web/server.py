@@ -140,6 +140,16 @@ class LedgerHandler(BaseHTTPRequestHandler):
                 return
             self._send_json({"transaction": row_to_public(row, include_raw=True)})
             return
+        if parsed.path == "/api/dashboard":
+            with SpendingDatabase() as db:
+                self._send_json(
+                    db.dashboard(
+                        year=_first(query, "year"),
+                        month=_first(query, "month"),
+                        bank=_first(query, "bank"),
+                    )
+                )
+            return
         if parsed.path == "/api/recurring":
             with SpendingDatabase() as db:
                 self._send_json(db.recurring_summary())
