@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "spending-tracker"
 version = "0.1.0"
@@ -7,6 +11,20 @@ readme = "README.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = [
+    "collector*",
+    "parsers*",
+    "categorizer*",
+    "database*",
+    "models*",
+    "config*",
+]
+exclude = ["tests*", "scripts*", "logs*", "docs*", "vendor*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

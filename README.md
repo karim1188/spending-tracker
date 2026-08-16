@@ -43,16 +43,40 @@ Enable **Terminal** (or iTerm). Quit and reopen the terminal after enabling.
 
 Without this permission macOS refuses `~/Library/Messages/chat.db` even for a read-only open.
 
-### 2. Install tools (if needed)
+### 2. Upgrade Python to 3.11+ (required)
+
+macOS often ships `python3` as **3.9**. This project needs **3.11 or newer**. Do not lower the project version; upgrade Python instead.
 
 ```bash
-# Python
-brew install python
+python3 --version
+```
 
-# Rust (recommended)
+If that prints 3.9.x:
+
+```bash
+brew install python@3.12
+$(brew --prefix python@3.12)/bin/python3.12 --version
+
+# Recreate the venv with 3.12 (delete the old 3.9 one)
+cd ~/Desktop/spending-tracker
+rm -rf .venv venv
+$(brew --prefix python@3.12)/bin/python3.12 -m venv .venv
+source .venv/bin/activate
+python3 --version    # must show 3.12.x
+```
+
+Install Homebrew first if needed: https://brew.sh
+
+Without Homebrew, install Python 3.12 from https://www.python.org/downloads/macos/ then recreate `.venv` with that `python3`.
+
+Rust (recommended):
+
+```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source "$HOME/.cargo/env"
 ```
+
+Use `source "$HOME/.cargo/env"` in bash/zsh. Do not source `env.fish` unless your shell is fish.
 
 ### 3. Install the app
 
