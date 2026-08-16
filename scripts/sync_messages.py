@@ -21,7 +21,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run one local Messages → spending sync")
     parser.add_argument("--db-path", type=Path, default=None, help="Path to chat.db (read-only)")
     parser.add_argument("--spending-db", type=Path, default=SPENDING_DB_PATH)
-    parser.add_argument("--limit", type=int, default=200)
+    parser.add_argument("--limit", type=int, default=0, help="Max messages this run; 0 means all remaining")
     parser.add_argument("--reset-checkpoint", action="store_true")
     args = parser.parse_args()
 
@@ -39,7 +39,7 @@ def main() -> int:
             collector.checkpoint.reset()
             logger.info("Checkpoint reset")
         try:
-            stats = collector.sync_once(limit=args.limit)
+            stats = collector.sync_once(limit=args.limit) if args.limit else collector.sync_all()
         except MessagesAccessError as exc:
             print(str(exc))
             if exc.full_disk_access:

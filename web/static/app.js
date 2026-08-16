@@ -431,7 +431,7 @@ txnBody.addEventListener("click", (event) => {
 
 syncBtn.addEventListener("click", async () => {
   syncBtn.disabled = true;
-  setStatus("Reading Messages database in READ ONLY mode…");
+  setStatus("Reading all remaining Messages in READ ONLY mode…");
   try {
     const response = await fetch("/api/sync", { method: "POST" });
     const data = await response.json();

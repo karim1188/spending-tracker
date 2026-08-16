@@ -65,6 +65,29 @@ class MessageCollector:
             stats.last_message_id = message.id
         return stats
 
+    def sync_all(self, batch_size: int | None = None) -> SyncStats:
+        chunk = batch_size or max(self.batch_size, 500)
+        combined = SyncStats(last_message_id=self.checkpoint.last_message_id())
+        while True:
+            batch = self.sync_once(limit=chunk)
+            combined.scanned += batch.scanned
+            combined.ignored_non_bank += batch.ignored_non_bank
+            combined.skipped_duplicate += batch.skipped_duplicate
+            combined.parsed += batch.parsed
+            combined.stored += batch.stored
+            combined.unknown += batch.unknown
+            combined.last_message_id = batch.last_message_id
+            combined.details.extend(batch.details)
+            if batch.scanned < chunk:
+                break
+        logger.info(
+            "Full sync finished: scanned=%s stored=%s ignored=%s",
+            combined.scanned,
+            combined.stored,
+            combined.ignored_non_bank,
+        )
+        return combined
+
     def _process_message(self, message: Message, stats: SyncStats) -> None:
         if self.db.is_excluded(message.guid):
             stats.skipped_duplicate += 1

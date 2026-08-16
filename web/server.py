@@ -256,7 +256,7 @@ class LedgerHandler(BaseHTTPRequestHandler):
                     reader=reader,
                     registry=BankRegistry.load(),
                 )
-                stats = collector.sync_once(limit=200)
+                stats = collector.sync_all()
             self._send_json(
                 {
                     "ok": True,

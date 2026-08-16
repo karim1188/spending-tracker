@@ -23,7 +23,7 @@ def main() -> int:
     parser.add_argument("--db-path", type=Path, default=None)
     parser.add_argument("--spending-db", type=Path, default=SPENDING_DB_PATH)
     parser.add_argument("--interval", type=float, default=5.0, help="Seconds between checks")
-    parser.add_argument("--limit", type=int, default=50)
+    parser.add_argument("--limit", type=int, default=0, help="Max messages per cycle; 0 means all remaining")
     args = parser.parse_args()
 
     logger = setup_logging()
@@ -50,7 +50,7 @@ def main() -> int:
         collector = MessageCollector(db=db, reader=reader, registry=BankRegistry.load())
         while running:
             try:
-                stats = collector.sync_once(limit=args.limit)
+                stats = collector.sync_once(limit=args.limit) if args.limit else collector.sync_all()
                 if stats.scanned:
                     logger.info(
                         "Cycle stored=%s ignored=%s",

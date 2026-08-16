@@ -105,3 +105,19 @@ def test_transaction_time_preserved(tmp_path):
     row = spending.recent_transactions()[0]
     assert "2026-03-01" in row["transaction_time"]
     spending.close()
+
+
+def test_sync_all_drains_every_message(tmp_path):
+    rows = [
+        {"id": i, "guid": f"g{i}", "sender": "Amazon", "text": "hello"}
+        for i in range(1, 6)
+    ]
+    rows.append({"id": 6, "guid": "snb", "sender": "SNB", "text": SNB_TEXT})
+    collector, spending = _collector(tmp_path, rows)
+    stats = collector.sync_all(batch_size=2)
+    assert stats.scanned == 6
+    assert stats.stored == 1
+    assert stats.ignored_non_bank == 5
+    assert spending.get_checkpoint() == 6
+    assert collector.sync_all(batch_size=2).scanned == 0
+    spending.close()

@@ -103,6 +103,6 @@ def _sync_quietly() -> None:
         if not access.ok:
             return
         with SpendingDatabase() as db:
-            MessageCollector(db=db, reader=reader, registry=BankRegistry.load()).sync_once(limit=100)
+            MessageCollector(db=db, reader=reader, registry=BankRegistry.load()).sync_all()
     except Exception:
         return
