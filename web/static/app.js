@@ -649,7 +649,7 @@ async function refreshHealthStrip() {
 }
 
 refreshHealthStrip();
-setInterval(refreshHealthStrip, 15000);
+setInterval(refreshHealthStrip, 30000);
 
 merchantForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -731,7 +731,7 @@ excludeBtn.addEventListener("click", async () => {
     return;
   }
   setStatus("Excluded. This PIN/SMS will not be imported again.");
-  location.hash = "#/";
+  location.hash = "#/ledger";
 });
 
 deleteBtn.addEventListener("click", async () => {
@@ -742,7 +742,7 @@ deleteBtn.addEventListener("click", async () => {
     return;
   }
   setStatus("Transaction deleted.");
-  location.hash = "#/";
+  location.hash = "#/ledger";
 });
 
 window.addEventListener("hashchange", route);

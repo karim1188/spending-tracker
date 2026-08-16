@@ -79,18 +79,25 @@ def on_messages_activity(settings: TelegramSettings | None = None, *, reason: st
             logger.info("Thermal: %s", ", ".join(thermal))
 
 
-def lightweight_maintenance(settings: TelegramSettings | None = None) -> None:
-    """Cheap wake: spending.db digest/near-limit + thermal. Does not open chat.db."""
+def lightweight_maintenance(
+    settings: TelegramSettings | None = None,
+    *,
+    run_thermal: bool = True,
+) -> list[str]:
+    """Cheap wake: spending.db digest/near-limit (+ optional thermal). No chat.db."""
     with _cycle_lock:
         settings = settings if settings is not None else load_telegram_settings()
         if settings is None:
-            return
+            return []
         sent = run_alert_tick(settings)
         if sent:
             logger.info("Telegram sent: %s", ", ".join(sent))
-        thermal = run_thermal_check(settings)
-        if thermal:
-            logger.info("Thermal: %s", ", ".join(thermal))
+        thermal: list[str] = []
+        if run_thermal:
+            thermal = run_thermal_check(settings)
+            if thermal:
+                logger.info("Thermal: %s", ", ".join(thermal))
+        return [*sent, *thermal]
 
 
 def start_messages_watcher(settings: TelegramSettings | None = None) -> None:
@@ -111,7 +118,7 @@ def start_messages_watcher(settings: TelegramSettings | None = None) -> None:
 
 
 def start_idle_runtime() -> None:
-    """Telegram menu (event-driven) + Messages file watch + light digest/thermal timer."""
+    """Telegram menu (event-driven) + Messages file watch + rare digest/thermal timer."""
     settings = load_telegram_settings()
     from notify.hub import start_telegram_hub
 
@@ -132,7 +139,7 @@ def start_idle_runtime() -> None:
 
     logger.info(
         "Idle runtime on. Telegram menu live · Messages watch live · digest %02d:%02d · "
-        "no timed chat.db polling",
+        "maintenance ~every 15m (60s near digest)",
         settings.daily_hour,
         settings.daily_minute,
     )
@@ -140,10 +147,17 @@ def start_idle_runtime() -> None:
 
 
 def _digest_loop(settings: TelegramSettings | None) -> None:
-    # Rare light checks for daily digest / overheat without touching chat.db.
+    from notify.schedule import THERMAL_INTERVAL_SECONDS, next_maintenance_sleep_seconds
+
+    last_thermal = 0.0
     while True:
         try:
-            lightweight_maintenance(settings)
+            now_mono = time.monotonic()
+            need_thermal = (now_mono - last_thermal) >= THERMAL_INTERVAL_SECONDS
+            lightweight_maintenance(settings, run_thermal=need_thermal)
+            if need_thermal:
+                last_thermal = time.monotonic()
         except Exception as exc:  # noqa: BLE001
             logger.info("Idle maintenance failed: %s", exc)
-        time.sleep(60)
+        sleep_for = next_maintenance_sleep_seconds(settings, last_thermal_at=last_thermal)
+        time.sleep(sleep_for)

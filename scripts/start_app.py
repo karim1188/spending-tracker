@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from collector.logging_config import setup_logging
+from collector.power import describe_power_policy, is_macos, reexec_under_caffeinate
 from notify.shutdown import register_shutdown
 from web.server import HOST, PORT, advertised_urls, serve
 
@@ -33,7 +34,33 @@ def main() -> int:
         action="store_true",
         help="Bind only to 127.0.0.1 instead of the local network",
     )
+    parser.add_argument(
+        "--allow-sleep",
+        action="store_true",
+        help="Let the Mac idle-sleep (server pauses until wake)",
+    )
+    parser.add_argument(
+        "--keep-display-awake",
+        action="store_true",
+        help="Also prevent display sleep (uses more power)",
+    )
+    parser.add_argument(
+        "--keep-system-awake",
+        action="store_true",
+        help="Also block system sleep (use on power adapter if you close the lid)",
+    )
     args = parser.parse_args()
+
+    prevent_idle = is_macos() and not args.allow_sleep
+    prevent_display = bool(args.keep_display_awake)
+    prevent_system = bool(args.keep_system_awake)
+    if prevent_idle or prevent_display or prevent_system:
+        reexec_under_caffeinate(
+            prevent_idle=prevent_idle,
+            prevent_display=prevent_display,
+            prevent_system=prevent_system,
+        )
+
     host = "127.0.0.1" if args.localhost else args.host
 
     setup_logging()
@@ -44,7 +71,6 @@ def main() -> int:
         try:
             httpd.shutdown()
         finally:
-            # Brief pause so an in-flight Telegram send can finish, then hard-exit.
             time.sleep(0.8)
             os._exit(0)
 
@@ -59,7 +85,10 @@ def main() -> int:
         print("[INFO] Anyone on this Wi-Fi can open the ledger. Use --localhost to keep it private.")
     else:
         print("[INFO] Bound to localhost only. No cloud. chat.db stays read-only.")
-    print("[INFO] Idle mode: wakes on new Messages or Telegram; no timed chat.db polling.")
+    print("[INFO] Idle mode: wakes on new Messages or Telegram; maintenance ~15 min.")
+    print(f"[INFO] {describe_power_policy(prevent_idle=prevent_idle, prevent_display=prevent_display, prevent_system=prevent_system)}")
+    if prevent_idle and not prevent_system:
+        print("[INFO] Tip: plug in power and add --keep-system-awake if you close the MacBook lid.")
     if not args.no_browser:
         threading.Timer(0.6, lambda: webbrowser.open(urls[0])).start()
     threading.Thread(target=_run_telegram_alerts, daemon=True, name="idle-runtime").start()
