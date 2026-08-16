@@ -285,7 +285,7 @@ async function showDetail(id) {
   const response = await fetch(`/api/transactions/${id}`);
   if (!response.ok) {
     setStatus("Transaction not found", true);
-    location.hash = "#/";
+    location.hash = "#/ledger";
     return;
   }
   const { transaction } = await response.json();
@@ -404,21 +404,26 @@ async function showRecurring() {
 }
 
 function route() {
-  if (location.hash === "#/dashboard") {
+  const hash = location.hash || "#/";
+  if (hash === "#/" || hash === "#" || hash === "#/dashboard") {
     showDashboard();
     return;
   }
-  if (location.hash === "#/recurring") {
+  if (hash === "#/ledger") {
+    showLedger();
+    refresh();
+    return;
+  }
+  if (hash === "#/recurring") {
     showRecurring();
     return;
   }
-  const match = location.hash.match(/^#\/txn\/(\d+)/);
+  const match = hash.match(/^#\/txn\/(\d+)/);
   if (match) {
     showDetail(match[1]);
     return;
   }
-  showLedger();
-  refresh();
+  showDashboard();
 }
 
 async function refresh() {
@@ -441,7 +446,8 @@ txnBody.addEventListener("click", (event) => {
 
 [dashYear, dashMonth, dashBank].forEach((el) => {
   el.addEventListener("change", () => {
-    if (location.hash === "#/dashboard") showDashboard();
+    const hash = location.hash || "#/";
+    if (hash === "#/" || hash === "#" || hash === "#/dashboard") showDashboard();
   });
 });
 
@@ -456,8 +462,9 @@ syncBtn.addEventListener("click", async () => {
       return;
     }
     setStatus(`Synced. Scanned ${data.scanned}, stored ${data.stored}, ignored ${data.ignored_non_bank}, skipped duplicates ${data.duplicates}.`);
-    if (location.hash === "#/dashboard") await showDashboard();
-    else if (location.hash === "#/recurring") await showRecurring();
+    const hash = location.hash || "#/";
+    if (hash === "#/" || hash === "#" || hash === "#/dashboard") await showDashboard();
+    else if (hash === "#/recurring") await showRecurring();
     else await refresh();
   } catch (error) {
     setStatus(String(error), true);
