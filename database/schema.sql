@@ -42,3 +42,11 @@ CREATE TABLE IF NOT EXISTS merchant_rules (
 CREATE INDEX IF NOT EXISTS idx_transactions_time ON transactions (transaction_time);
 CREATE INDEX IF NOT EXISTS idx_transactions_bank ON transactions (bank);
 CREATE INDEX IF NOT EXISTS idx_bank_senders_sender ON bank_senders (sender);
+
+CREATE TABLE IF NOT EXISTS sender_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender TEXT NOT NULL UNIQUE,
+    category TEXT,
+    bank TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

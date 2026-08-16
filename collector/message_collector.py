@@ -89,6 +89,12 @@ class MessageCollector:
         if tx.transaction_type == "unknown":
             stats.unknown += 1
         tx.category = self.categorizer.categorize(tx.merchant, tx.transaction_type)
+        rule = self.db.sender_rule(message.sender)
+        if rule:
+            if rule["category"]:
+                tx.category = rule["category"]
+            if rule["bank"]:
+                tx.bank = rule["bank"]
         if tx.amount is not None:
             logger.info(
                 "Parsed %s: %s %s",

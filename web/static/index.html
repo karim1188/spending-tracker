@@ -18,24 +18,24 @@
     </div>
     <div class="mast-actions">
       <p class="mast-note">SAR spending from bank SMS on this Mac. Nothing leaves the machine.</p>
-      <button id="sync-btn" class="btn" type="button">
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 6V3L8 7l4 4V8c2.76 0 5 2.24 5 5a5 5 0 0 1-8.9 3.1L6.7 17.5A7 7 0 0 0 19 13c0-3.87-3.13-7-7-7zm-7 7c0-1.07.24-2.08.67-3L4.26 8.59A8.96 8.96 0 0 0 3 13a7 7 0 0 0 12.3 4.5l-1.4-1.4A5 5 0 0 1 5 13z"/></svg>
-        Sync Messages
-      </button>
+      <div class="action-row">
+        <button id="sync-btn" class="btn" type="button">Sync Messages</button>
+        <button id="dedupe-btn" class="btn btn-ghost" type="button">Remove duplicates</button>
+      </div>
     </div>
   </header>
 
   <section class="status-strip" id="status-strip" hidden></section>
 
-  <main>
+  <main id="view-ledger">
     <section class="hero-metrics" aria-label="Totals">
       <article class="metric metric-primary">
-        <p class="metric-label">This month</p>
+        <p class="metric-label">Filtered total</p>
         <p class="metric-value" id="month-amount">—</p>
         <p class="metric-sub" id="month-count">waiting for sync</p>
       </article>
       <article class="metric">
-        <p class="metric-label">All imported</p>
+        <p class="metric-label">Transactions</p>
         <p class="metric-value small" id="total-amount">—</p>
         <p class="metric-sub" id="total-count">0 transactions</p>
       </article>
@@ -65,17 +65,37 @@
       <header class="panel-head">
         <h2>Ledger</h2>
         <div class="filters">
-          <label>
-            Bank
-            <select id="filter-bank">
-              <option value="">All</option>
+          <label>Year
+            <select id="filter-year"><option value="">All years</option></select>
+          </label>
+          <label>Month
+            <select id="filter-month">
+              <option value="">All months</option>
+              <option value="01">January</option>
+              <option value="02">February</option>
+              <option value="03">March</option>
+              <option value="04">April</option>
+              <option value="05">May</option>
+              <option value="06">June</option>
+              <option value="07">July</option>
+              <option value="08">August</option>
+              <option value="09">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
             </select>
           </label>
-          <label>
-            Category
-            <select id="filter-category">
-              <option value="">All</option>
-            </select>
+          <label>Bank
+            <select id="filter-bank"><option value="">All</option></select>
+          </label>
+          <label>Sender
+            <select id="filter-sender"><option value="">All</option></select>
+          </label>
+          <label>Category
+            <select id="filter-category"><option value="">All</option></select>
+          </label>
+          <label>Type
+            <select id="filter-type"><option value="">All</option></select>
           </label>
         </div>
       </header>
@@ -84,7 +104,9 @@
           <thead>
             <tr>
               <th>When</th>
+              <th>Age</th>
               <th>Bank</th>
+              <th>Sender</th>
               <th>Merchant</th>
               <th>Type</th>
               <th>Category</th>
@@ -92,11 +114,39 @@
             </tr>
           </thead>
           <tbody id="txn-body">
-            <tr><td colspan="6" class="empty">Loading…</td></tr>
+            <tr><td colspan="8" class="empty">Loading…</td></tr>
           </tbody>
         </table>
       </div>
     </section>
+  </main>
+
+  <main id="view-detail" hidden>
+    <p><a class="back" href="#/">Back to ledger</a></p>
+    <article class="panel detail-card">
+      <header class="panel-head">
+        <h2>Message detail</h2>
+        <p class="age" id="detail-age"></p>
+      </header>
+      <dl class="detail-grid" id="detail-grid"></dl>
+      <h3>Original SMS</h3>
+      <pre id="detail-raw" class="raw-msg"></pre>
+      <form id="sender-form" class="sender-form">
+        <h3>Categorize this sender for later</h3>
+        <p class="help">Applies to this sender from now on, including existing rows.</p>
+        <label>Sender<input id="rule-sender" readonly></label>
+        <label>Category
+          <select id="rule-category"></select>
+        </label>
+        <label>Bank
+          <select id="rule-bank"></select>
+        </label>
+        <div class="action-row">
+          <button class="btn" type="submit">Save sender rule</button>
+          <button id="delete-btn" class="btn btn-danger" type="button">Delete transaction</button>
+        </div>
+      </form>
+    </article>
   </main>
   <script src="/static/app.js"></script>
 </body>

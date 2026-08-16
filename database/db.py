@@ -120,70 +120,225 @@ class SpendingDatabase:
         ).fetchall()
         return [(row["pattern"], row["category"]) for row in rows]
 
-    def list_transactions(
+    def _period_clause(
         self,
-        limit: int = 200,
+        year: str | None = None,
+        month: str | None = None,
         bank: str | None = None,
         category: str | None = None,
-    ) -> list[sqlite3.Row]:
-        sql = [
-            """
-            SELECT id, bank, sender, transaction_type, amount, currency, merchant,
-                   card_last4, account_last4, transaction_time, balance, category,
-                   created_at
-            FROM transactions
-            WHERE 1=1
-            """
-        ]
+        sender: str | None = None,
+        transaction_type: str | None = None,
+        query: str | None = None,
+    ) -> tuple[str, list[object]]:
+        sql = []
         params: list[object] = []
+        stamp = "COALESCE(transaction_time, created_at)"
+        if year:
+            sql.append(f"AND strftime('%Y', {stamp}) = ?")
+            params.append(str(year))
+        if month:
+            sql.append(f"AND strftime('%m', {stamp}) = ?")
+            params.append(str(month).zfill(2))
         if bank:
             sql.append("AND bank = ?")
             params.append(bank)
         if category:
             sql.append("AND category = ?")
             params.append(category)
-        sql.append("ORDER BY COALESCE(transaction_time, created_at) DESC, id DESC")
-        sql.append("LIMIT ?")
-        params.append(limit)
-        return self.conn.execute("\n".join(sql), params).fetchall()
+        if sender:
+            sql.append("AND sender = ?")
+            params.append(sender)
+        if transaction_type:
+            sql.append("AND transaction_type = ?")
+            params.append(transaction_type)
+        if query:
+            sql.append("AND (IFNULL(merchant, '') LIKE ? OR IFNULL(sender, '') LIKE ?)")
+            like = f"%{query}%"
+            params.extend([like, like])
+        return "\n".join(sql), params
 
-    def summary(self) -> dict:
-        total_row = self.conn.execute(
-            """
-            SELECT
-                COUNT(*) AS txn_count,
-                COALESCE(SUM(CASE WHEN amount IS NOT NULL THEN amount ELSE 0 END), 0) AS total_amount
+    def list_transactions(
+        self,
+        limit: int = 500,
+        year: str | None = None,
+        month: str | None = None,
+        bank: str | None = None,
+        category: str | None = None,
+        sender: str | None = None,
+        transaction_type: str | None = None,
+        query: str | None = None,
+    ) -> list[sqlite3.Row]:
+        extra, params = self._period_clause(
+            year, month, bank, category, sender, transaction_type, query
+        )
+        params.append(limit)
+        return self.conn.execute(
+            f"""
+            SELECT id, bank, sender, transaction_type, amount, currency, merchant,
+                   card_last4, account_last4, transaction_time, balance, category,
+                   created_at
             FROM transactions
-            """
+            WHERE 1=1
+            {extra}
+            ORDER BY COALESCE(transaction_time, created_at) DESC, id DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+
+    def get_transaction(self, txn_id: int) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM transactions WHERE id = ?",
+            (txn_id,),
         ).fetchone()
-        month_row = self.conn.execute(
+
+    def delete_transaction(self, txn_id: int) -> bool:
+        cursor = self.conn.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def purge_duplicates(self) -> int:
+        before = self.conn.execute("SELECT COUNT(*) AS n FROM transactions").fetchone()["n"]
+        self.conn.execute(
             """
+            DELETE FROM transactions
+            WHERE id NOT IN (
+                SELECT MIN(id)
+                FROM transactions
+                GROUP BY
+                    IFNULL(sender, ''),
+                    ROUND(COALESCE(amount, 0), 2),
+                    IFNULL(merchant, ''),
+                    IFNULL(currency, ''),
+                    date(COALESCE(transaction_time, created_at))
+            )
+            """
+        )
+        self.conn.commit()
+        after = self.conn.execute("SELECT COUNT(*) AS n FROM transactions").fetchone()["n"]
+        return int(before) - int(after)
+
+    def filter_options(self) -> dict:
+        def column_values(column: str) -> list[str]:
+            rows = self.conn.execute(
+                f"""
+                SELECT DISTINCT {column} AS value
+                FROM transactions
+                WHERE {column} IS NOT NULL AND TRIM({column}) != ''
+                ORDER BY value
+                """
+            ).fetchall()
+            return [row["value"] for row in rows]
+
+        years = [
+            row["value"]
+            for row in self.conn.execute(
+                """
+                SELECT DISTINCT strftime('%Y', COALESCE(transaction_time, created_at)) AS value
+                FROM transactions
+                WHERE COALESCE(transaction_time, created_at) IS NOT NULL
+                ORDER BY value DESC
+                """
+            ).fetchall()
+            if row["value"]
+        ]
+        return {
+            "years": years,
+            "banks": column_values("bank"),
+            "categories": column_values("category"),
+            "senders": column_values("sender"),
+            "types": column_values("transaction_type"),
+        }
+
+    def sender_rule(self, sender: str) -> sqlite3.Row | None:
+        if not sender:
+            return None
+        return self.conn.execute(
+            "SELECT * FROM sender_rules WHERE sender = ?",
+            (sender,),
+        ).fetchone()
+
+    def upsert_sender_rule(
+        self,
+        sender: str,
+        category: str | None = None,
+        bank: str | None = None,
+        apply_existing: bool = True,
+    ) -> None:
+        now = datetime.now(timezone.utc).isoformat(sep=" ")
+        self.conn.execute(
+            """
+            INSERT INTO sender_rules (sender, category, bank, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(sender) DO UPDATE SET
+                category = excluded.category,
+                bank = COALESCE(excluded.bank, sender_rules.bank),
+                updated_at = excluded.updated_at
+            """,
+            (sender, category, bank, now),
+        )
+        if apply_existing:
+            if category:
+                self.conn.execute(
+                    "UPDATE transactions SET category = ? WHERE sender = ?",
+                    (category, sender),
+                )
+            if bank:
+                self.conn.execute(
+                    "UPDATE transactions SET bank = ? WHERE sender = ?",
+                    (bank, sender),
+                )
+        self.conn.commit()
+
+    def summary(
+        self,
+        year: str | None = None,
+        month: str | None = None,
+        bank: str | None = None,
+        category: str | None = None,
+        sender: str | None = None,
+        transaction_type: str | None = None,
+        query: str | None = None,
+    ) -> dict:
+        extra, params = self._period_clause(
+            year, month, bank, category, sender, transaction_type, query
+        )
+        total_row = self.conn.execute(
+            f"""
             SELECT
                 COUNT(*) AS txn_count,
                 COALESCE(SUM(CASE WHEN amount IS NOT NULL THEN amount ELSE 0 END), 0) AS total_amount
             FROM transactions
-            WHERE strftime('%Y-%m', COALESCE(transaction_time, created_at)) = strftime('%Y-%m', 'now')
-            """
+            WHERE 1=1
+            {extra}
+            """,
+            params,
         ).fetchone()
         by_category = self.conn.execute(
-            """
+            f"""
             SELECT COALESCE(category, 'Other') AS label,
                    COUNT(*) AS txn_count,
                    COALESCE(SUM(amount), 0) AS total_amount
             FROM transactions
+            WHERE 1=1
+            {extra}
             GROUP BY COALESCE(category, 'Other')
             ORDER BY total_amount DESC
-            """
+            """,
+            params,
         ).fetchall()
         by_bank = self.conn.execute(
-            """
+            f"""
             SELECT COALESCE(bank, 'Unknown') AS label,
                    COUNT(*) AS txn_count,
                    COALESCE(SUM(amount), 0) AS total_amount
             FROM transactions
+            WHERE 1=1
+            {extra}
             GROUP BY COALESCE(bank, 'Unknown')
             ORDER BY total_amount DESC
-            """
+            """,
+            params,
         ).fetchall()
         checkpoint = self.conn.execute(
             "SELECT source, last_message_id, last_checked_at FROM collector_state"
@@ -191,10 +346,9 @@ class SpendingDatabase:
         return {
             "txn_count": int(total_row["txn_count"]),
             "total_amount": float(total_row["total_amount"]),
-            "month_count": int(month_row["txn_count"]),
-            "month_amount": float(month_row["total_amount"]),
             "by_category": [dict(row) for row in by_category],
             "by_bank": [dict(row) for row in by_bank],
             "checkpoint": [dict(row) for row in checkpoint],
         }
+
 
