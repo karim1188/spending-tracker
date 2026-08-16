@@ -10,11 +10,10 @@ def test_read_health_returns_snapshot(tmp_path, monkeypatch):
     assert snap.process_uptime_seconds >= 0
     assert snap.platform
     text = format_health_report(snap)
-    assert "Server health" in text
-    assert "CPU:" in text
-    assert "RAM:" in text
-    assert "App RSS:" in text
-    assert "Disk:" in text
+    assert "Server health" in text or "SERVER HEALTH" in text
+    assert "CPU" in text
+    assert "RAM" in text
+    assert "Disk" in text or "DISK" in text
 
 
 def test_health_public_dict_keys():

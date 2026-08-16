@@ -121,5 +121,5 @@ def test_period_reports_day_week_month_year(tmp_path):
     assert result["ok"] is True
     assert "Month" in sent[0]
     assert "100.00" in sent[0]
-    assert "By category" in format_period_report(month)
+    assert "CATEGORIES" in format_period_report(month)
     db.close()

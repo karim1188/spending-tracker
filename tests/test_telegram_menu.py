@@ -35,5 +35,6 @@ def test_parse_callback_data():
 def test_menu_buttons_cover_reports():
     labels = {label for row in menu_button_rows() for label, _ in row}
     assert {"Day", "Week", "Month", "Year", "Server", "Menu"} <= labels
-    assert "Spending tracker menu" in menu_message()
-    assert "health" in menu_message()
+    assert "PRIVATE LEDGER" in menu_message()
+    assert "MENU" in menu_message()
+    assert "health" in menu_message().lower()

@@ -8,6 +8,7 @@ from typing import Any
 from collector.logging_config import get_logger
 from notify.menu import menu_button_rows, menu_message, parse_callback_data, parse_menu_command
 from notify.settings import TelegramSettings, load_telegram_settings
+from notify.theme import BRAND, card
 
 logger = get_logger()
 
@@ -177,7 +178,15 @@ class TelegramHub:
         except Exception as exc:  # noqa: BLE001
             logger.info("Telegram menu action failed (%s): %s", action, exc)
             try:
-                await event.respond(f"Could not build that report: {exc}")
+                await event.respond(
+                    card(
+                        "Error",
+                        subtitle="Could not build that report",
+                        sections=[[str(exc)]],
+                        badge="failed",
+                        footer=BRAND,
+                    )
+                )
             except Exception:
                 pass
 

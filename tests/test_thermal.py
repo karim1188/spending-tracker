@@ -84,6 +84,6 @@ def test_send_overheat_test_never_kills():
     assert result["ok"] is True
     assert result["killed"] is False
     assert result["test"] is True
-    assert sent and sent[0].startswith("[TEST]")
+    assert sent and "OVERHEAT" in sent[0] and "TEST" in sent[0]
     assert "Test only" in sent[0]
     assert "Stopping" not in format_overheat(status, 90.0, test=True, will_kill=False)

@@ -89,47 +89,63 @@ def read_health(
 
 
 def format_health_report(snap: HealthSnapshot) -> str:
-    lines = [
-        "Server health",
-        f"{snap.hostname} · {snap.platform}",
-        "",
-        f"CPU: {_fmt_pct(snap.cpu_percent)}"
-        + (f" · {snap.cpu_count} cores" if snap.cpu_count else ""),
+    from notify.theme import BRAND, card, kv, section
+
+    body = [
+        kv("Host", snap.hostname),
+        kv("OS", snap.platform),
+        kv("CPU", _fmt_pct(snap.cpu_percent) + (f" · {snap.cpu_count} cores" if snap.cpu_count else "")),
     ]
     if snap.load_1m is not None:
-        lines.append(
-            f"Load: {snap.load_1m:.2f} / {snap.load_5m:.2f} / {snap.load_15m:.2f} (1/5/15m)"
+        body.append(
+            kv("Load", f"{snap.load_1m:.2f} / {snap.load_5m:.2f} / {snap.load_15m:.2f}")
         )
-    lines.append(
-        f"RAM: {_fmt_gb(snap.ram_used_gb)} / {_fmt_gb(snap.ram_total_gb)}"
-        + (f" ({snap.ram_percent:.0f}%)" if snap.ram_percent is not None else "")
+    body.append(
+        kv(
+            "RAM",
+            f"{_fmt_gb(snap.ram_used_gb)} / {_fmt_gb(snap.ram_total_gb)}"
+            + (f" ({snap.ram_percent:.0f}%)" if snap.ram_percent is not None else ""),
+        )
     )
-    lines.append(f"App RSS: {_fmt_mb(snap.process_rss_mb)} · up {_fmt_uptime(snap.process_uptime_seconds)}")
-    lines.append(
-        f"Disk: {_fmt_gb(snap.disk_free_gb)} free of {_fmt_gb(snap.disk_total_gb)}"
-        + (f" ({snap.disk_percent_used:.0f}% used)" if snap.disk_percent_used is not None else "")
+    body.append(kv("App", f"{_fmt_mb(snap.process_rss_mb)} · up {_fmt_uptime(snap.process_uptime_seconds)}"))
+    body.append(
+        kv(
+            "Disk",
+            f"{_fmt_gb(snap.disk_free_gb)} free / {_fmt_gb(snap.disk_total_gb)}"
+            + (f" ({snap.disk_percent_used:.0f}% used)" if snap.disk_percent_used is not None else ""),
+        )
     )
+    thermal_lines: list[str] = []
     if snap.thermal_celsius is not None:
-        flag = " · HOT" if snap.overheating else ""
-        lines.append(
-            f"Temp: {snap.thermal_celsius:.1f}°C (limit {snap.overheat_threshold_celsius:.0f}°C){flag}"
+        flag = " HOT" if snap.overheating else ""
+        thermal_lines.append(
+            kv("Temp", f"{snap.thermal_celsius:.1f}°C / {snap.overheat_threshold_celsius:.0f}°C{flag}")
         )
     elif snap.cpu_speed_limit is not None:
-        flag = " · THROTTLING" if snap.overheating else ""
-        lines.append(f"CPU speed limit: {snap.cpu_speed_limit}%{flag}")
+        flag = " THROTTLING" if snap.overheating else ""
+        thermal_lines.append(kv("Throttle", f"{snap.cpu_speed_limit}%{flag}"))
     else:
-        lines.append(f"Temp: unavailable ({snap.thermal_source})")
-    if snap.spending_db_mb is not None or snap.transaction_count is not None:
-        bits = []
-        if snap.transaction_count is not None:
-            bits.append(f"{snap.transaction_count} txns")
-        if snap.spending_db_mb is not None:
-            bits.append(f"DB {_fmt_mb(snap.spending_db_mb)}")
-        if snap.last_message_id is not None:
-            bits.append(f"msg #{snap.last_message_id}")
-        lines.append("Ledger: " + " · ".join(bits))
-    lines.append(f"Python {snap.python}")
-    return "\n".join(lines)
+        thermal_lines.append(kv("Temp", f"n/a ({snap.thermal_source})"))
+
+    ledger_lines: list[str] = []
+    if snap.transaction_count is not None:
+        ledger_lines.append(kv("Txns", str(snap.transaction_count)))
+    if snap.spending_db_mb is not None:
+        ledger_lines.append(kv("DB", _fmt_mb(snap.spending_db_mb)))
+    if snap.last_message_id is not None:
+        ledger_lines.append(kv("Msg #", str(snap.last_message_id)))
+    ledger_lines.append(kv("Python", snap.python))
+
+    sections = [body, section("Thermal", thermal_lines)]
+    if ledger_lines:
+        sections.append(section("Ledger", ledger_lines))
+    return card(
+        "Server health",
+        subtitle="Live Mac status",
+        sections=sections,
+        badge="hot" if snap.overheating else "ok",
+        footer=BRAND,
+    )
 
 
 def _fmt_pct(value: float | None) -> str:

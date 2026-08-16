@@ -5,11 +5,11 @@ from collections.abc import Callable
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from collector.logging_config import get_logger
 from database.db import SpendingDatabase
 from notify.settings import TelegramSettings, load_telegram_settings
 from notify.shutdown import request_shutdown
 from notify.telegram import sender_from_settings
+from notify.theme import BRAND, bullet_rows, budget_lines, card, format_sar, kv, section
 from notify.thermal import ThermalStatus, read_thermal_status
 
 WARNING_KEY = "last_warning_day"
@@ -26,57 +26,73 @@ NEAR_LIMIT_LINES = (
 )
 
 
-def format_sar(amount: float) -> str:
-    return f"SAR {amount:,.2f}"
-
-
 def format_day_report(report: dict, limit: float) -> str:
-    remaining = limit - report["total_amount"]
-    lines = [
-        f"Spending for {report.get('day') or report.get('title') or 'today'}",
-        f"{format_sar(report['total_amount'])} · {report['txn_count']} purchases",
+    title = str(report.get("day") or report.get("title") or "today")
+    body = [
+        kv("Total", format_sar(report["total_amount"])),
+        kv("Buys", str(report.get("txn_count") or 0)),
+        *budget_lines(float(report["total_amount"]), limit),
     ]
-    if remaining >= 0:
-        lines.append(f"{format_sar(remaining)} left before the {format_sar(limit)} daily warning")
-    else:
-        lines.append(f"Over the {format_sar(limit)} daily warning by {format_sar(-remaining)}")
-    if report.get("merchants"):
-        lines.append("")
-        lines.append("Top")
-        for row in report["merchants"]:
-            lines.append(f"· {row['label']}: {format_sar(row['total_amount'])}")
-    return "\n".join(lines)
+    merchants = bullet_rows(report.get("merchants") or [])
+    sections = [body]
+    if merchants:
+        sections.append(section("Top merchants", merchants))
+    return card(
+        "Day report",
+        subtitle=title,
+        sections=sections,
+        footer="Reply menu for week · month · year · server",
+    )
 
 
 def format_period_report(report: dict, limit: float | None = None) -> str:
-    lines = [
-        f"Spending report · {report['title']}",
-        f"{format_sar(report['total_amount'])} · {report['txn_count']} purchases",
+    period = str(report.get("period") or "report").upper()
+    kind = {
+        "DAY": "Day report",
+        "WEEK": "Week report",
+        "MONTH": "Month report",
+        "YEAR": "Year report",
+    }.get(period, "Spending report")
+    body = [
+        kv("Total", format_sar(report["total_amount"])),
+        kv("Buys", str(report.get("txn_count") or 0)),
     ]
     if report.get("period") == "day" and limit is not None:
-        remaining = limit - report["total_amount"]
-        if remaining >= 0:
-            lines.append(f"{format_sar(remaining)} left before the {format_sar(limit)} daily warning")
-        else:
-            lines.append(f"Over the {format_sar(limit)} daily warning by {format_sar(-remaining)}")
-    if report.get("categories"):
-        lines.append("")
-        lines.append("By category")
-        for row in report["categories"]:
-            lines.append(f"· {row['label']}: {format_sar(row['total_amount'])}")
-    if report.get("merchants"):
-        lines.append("")
-        lines.append("Top merchants")
-        for row in report["merchants"]:
-            lines.append(f"· {row['label']}: {format_sar(row['total_amount'])}")
-    return "\n".join(lines)
+        body.extend(budget_lines(float(report["total_amount"]), limit))
+    sections: list[list[str]] = [body]
+    categories = bullet_rows(report.get("categories") or [])
+    merchants = bullet_rows(report.get("merchants") or [])
+    if categories:
+        sections.append(section("Categories", categories))
+    if merchants:
+        sections.append(section("Top merchants", merchants))
+    return card(
+        kind,
+        subtitle=str(report.get("title") or period.title()),
+        sections=sections,
+        footer="Reply menu anytime",
+    )
 
 
 def format_warning(report: dict, limit: float) -> str:
-    return (
-        f"Daily spending warning\n"
-        f"Today is {format_sar(report['total_amount'])} — over {format_sar(limit)}.\n\n"
-        f"{format_day_report(report, limit)}"
+    over = float(report["total_amount"]) - limit
+    body = [
+        "Daily limit reached.",
+        kv("Today", format_sar(report["total_amount"])),
+        kv("Limit", format_sar(limit)),
+        kv("Over", format_sar(max(0.0, over))),
+        *budget_lines(float(report["total_amount"]), limit),
+    ]
+    merchants = bullet_rows(report.get("merchants") or [])
+    sections = [body]
+    if merchants:
+        sections.append(section("Top merchants", merchants))
+    return card(
+        "Spending alert",
+        subtitle=str(report.get("day") or report.get("title") or "today"),
+        sections=sections,
+        badge="over limit",
+        footer="Ease up — tomorrow resets the daily budget",
     )
 
 
@@ -88,10 +104,20 @@ def format_near_limit(
 ) -> str:
     remaining = max(0.0, limit - report["total_amount"])
     pick = line if line is not None else random.choice(NEAR_LIMIT_LINES)
-    return (
-        f"{pick}\n\n"
-        f"Today: {format_sar(report['total_amount'])} · "
-        f"{format_sar(remaining)} left (warning kicks in under {format_sar(cushion)} of {format_sar(limit)})."
+    body = [
+        pick,
+        "",
+        kv("Today", format_sar(report["total_amount"])),
+        kv("Left", format_sar(remaining)),
+        kv("Warn @", f"under {format_sar(cushion)} of {format_sar(limit)}"),
+        *budget_lines(float(report["total_amount"]), limit),
+    ]
+    return card(
+        "Near limit",
+        subtitle=str(report.get("day") or "today"),
+        sections=[body],
+        badge="nudge",
+        footer="One good skip beats one more purchase",
     )
 
 
@@ -102,22 +128,29 @@ def format_overheat(
     test: bool = False,
     will_kill: bool = False,
 ) -> str:
-    prefix = "[TEST] " if test else ""
     temp = f"{status.celsius:.1f}°C" if status.celsius is not None else "unknown"
-    lines = [
-        f"{prefix}Mac overheat warning",
-        f"CPU: {temp} (threshold {threshold:.0f}°C)",
-        f"Source: {status.source}",
+    body = [
+        kv("CPU", temp),
+        kv("Limit", f"{threshold:.0f}°C"),
+        kv("Source", status.source),
     ]
     if status.cpu_speed_limit is not None:
-        lines.append(f"CPU speed limit: {status.cpu_speed_limit}%")
+        body.append(kv("Throttle", f"{status.cpu_speed_limit}%"))
     if status.detail:
-        lines.append(status.detail)
+        body.append(status.detail)
     if will_kill:
-        lines.append("Stopping the spending tracker to cool down.")
+        body.append("")
+        body.append("Stopping the spending tracker to cool down.")
     elif test:
-        lines.append("Test only — app will not stop.")
-    return "\n".join(lines)
+        body.append("")
+        body.append("Test only — app will not stop.")
+    return card(
+        "Overheat",
+        subtitle="Mac thermal status",
+        sections=[body],
+        badge="test" if test else ("kill switch" if will_kill else "warning"),
+        footer=BRAND,
+    )
 
 
 def thermal_payload(status: ThermalStatus, threshold: float) -> dict:

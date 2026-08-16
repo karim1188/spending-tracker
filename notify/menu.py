@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from notify.theme import BRAND, card
+
 MENU_PERIODS = ("day", "week", "month", "year")
 MENU_ACTIONS = (*MENU_PERIODS, "health", "thermal", "menu")
 
@@ -33,11 +35,20 @@ _COMMAND_ALIASES = {
 
 
 def menu_message() -> str:
-    return (
-        "Spending tracker menu\n"
-        "Tap a button, or send: day · week · month · year · health\n"
-        "health = CPU, RAM, disk, temp, app uptime\n"
-        "Send menu anytime to open this again."
+    body = [
+        "Tap a button below, or send a short command:",
+        "",
+        "day · week · month · year",
+        "health / cpu / ram / server",
+        "menu  (open this again)",
+        "",
+        "Reports stay on this Mac. Nothing leaves except these Telegram notes.",
+    ]
+    return card(
+        "Menu",
+        subtitle="Choose a report",
+        sections=[body],
+        footer=BRAND,
     )
 
 
