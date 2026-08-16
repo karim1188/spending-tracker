@@ -240,13 +240,42 @@
       <article class="metric metric-primary">
         <p class="metric-label">Every month</p>
         <p class="metric-value" id="recurring-page-month">—</p>
-        <p class="metric-sub" id="recurring-page-count">bills you marked</p>
+        <p class="metric-sub" id="recurring-page-count">bills and habits</p>
       </article>
       <article class="metric">
         <p class="metric-label">Yearly estimate</p>
         <p class="metric-value small" id="recurring-page-year">—</p>
         <p class="metric-sub">monthly total × 12</p>
       </article>
+    </section>
+    <section class="panel habit-panel">
+      <header class="panel-head">
+        <h2>Add habit</h2>
+      </header>
+      <form id="habit-form" class="habit-form">
+        <p class="help">Cash habits like cigarettes are not in bank SMS. Daily amounts count as amount × 30 each month. This never tags ledger transactions.</p>
+        <div class="habit-grid">
+          <label>Name
+            <input id="habit-label" type="text" placeholder="Cigarettes" required>
+          </label>
+          <label>Amount
+            <input id="habit-amount" type="number" min="0.01" step="0.01" placeholder="25" required>
+          </label>
+          <label>Frequency
+            <select id="habit-frequency">
+              <option value="daily" selected>Daily (×30)</option>
+              <option value="weekly">Weekly (×52÷12)</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </label>
+          <label>Category
+            <select id="habit-category"></select>
+          </label>
+        </div>
+        <div class="action-row">
+          <button class="btn" type="submit">Add to recurring</button>
+        </div>
+      </form>
     </section>
     <section class="split">
       <article class="panel">
@@ -257,20 +286,21 @@
       </article>
       <article class="panel">
         <header class="panel-head">
-          <h2>Monthly bills</h2>
+          <h2>Recurring list</h2>
         </header>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Merchant / bill</th>
+                <th>Name</th>
+                <th>How often</th>
                 <th>Category</th>
                 <th class="num">Each month</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="recurring-body">
-              <tr><td colspan="4" class="empty">No monthly bills yet.</td></tr>
+              <tr><td colspan="5" class="empty">No recurring items yet.</td></tr>
             </tbody>
           </table>
         </div>

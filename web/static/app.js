@@ -35,6 +35,11 @@ const recurringPageYear = document.getElementById("recurring-page-year");
 const recurringPageCount = document.getElementById("recurring-page-count");
 const navLedger = document.getElementById("nav-ledger");
 const navRecurring = document.getElementById("nav-recurring");
+const habitForm = document.getElementById("habit-form");
+const habitLabel = document.getElementById("habit-label");
+const habitAmount = document.getElementById("habit-amount");
+const habitFrequency = document.getElementById("habit-frequency");
+const habitCategory = document.getElementById("habit-category");
 const navDashboard = document.getElementById("nav-dashboard");
 const viewDashboard = document.getElementById("view-dashboard");
 const dashYear = document.getElementById("dash-year");
@@ -212,8 +217,17 @@ async function loadFilters() {
   fillSelect(filterCategory, filterCatalog.categories || [], filterCategory.value, "All");
   fillSelect(filterType, filterCatalog.types || [], filterType.value, "All");
   fillSelect(ruleCategory, filterCatalog.all_categories || [], ruleCategory.value, "Choose category");
+  fillSelect(habitCategory, filterCatalog.all_categories || [], habitCategory.value, "Choose category");
   fillSelect(dashYear, filterCatalog.years || [], dashYear.value, "All years");
   fillSelect(dashBank, filterCatalog.banks || [], dashBank.value, "All banks");
+}
+
+function frequencyLabel(row) {
+  const amount = Number(row.amount) || 0;
+  if (row.frequency === "daily") return `${sar(amount)} / day`;
+  if (row.frequency === "weekly") return `${sar(amount)} / week`;
+  if (row.source === "manual") return `${sar(amount)} / month`;
+  return "from bank SMS";
 }
 
 async function loadSummary() {
@@ -363,25 +377,27 @@ async function showRecurring() {
   hideViews();
   setNav("recurring");
   viewRecurring.hidden = false;
+  await loadFilters();
   const response = await fetch("/api/recurring");
   const data = await response.json();
   recurringPageMonth.textContent = sar(data.monthly_total);
   recurringPageYear.textContent = sar(data.yearly_total);
   recurringPageCount.textContent = data.item_count
-    ? `${data.item_count} bill${data.item_count === 1 ? "" : "s"} you marked`
-    : "mark a transaction as a monthly bill";
+    ? `${data.item_count} item${data.item_count === 1 ? "" : "s"} · bills + habits`
+    : "add a habit or mark a bank bill";
   const catMax = Math.max(...(data.by_category || []).map((row) => Number(row.total_amount) || 0), 0);
   renderBars(recurringBars, data.by_category || [], catMax);
   const rows = data.items || [];
   if (!rows.length) {
-    recurringBody.innerHTML = `<tr><td colspan="4" class="empty">No monthly bills yet. Open a transaction and mark it.</td></tr>`;
+    recurringBody.innerHTML = `<tr><td colspan="5" class="empty">No recurring items yet. Add a habit below or mark a bank SMS.</td></tr>`;
     return;
   }
   recurringBody.innerHTML = rows.map((row) => `
     <tr>
-      <td>${row.label}</td>
+      <td>${row.label}${row.source === "manual" ? ' <span class="badge">habit</span>' : ' <span class="badge">SMS</span>'}</td>
+      <td>${frequencyLabel(row)}</td>
       <td>${row.category || "Other"}</td>
-      <td class="num">${sar(row.amount)}</td>
+      <td class="num">${sar(row.monthly_amount != null ? row.monthly_amount : row.amount)}</td>
       <td><button class="btn btn-ghost" type="button" data-recurring-id="${row.id}">Remove</button></td>
     </tr>
   `).join("");
@@ -509,6 +525,30 @@ recurringBody.addEventListener("click", async (event) => {
     return;
   }
   setStatus("Removed from monthly bills.");
+  showRecurring();
+});
+
+habitForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const response = await fetch("/api/recurring", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      label: habitLabel.value,
+      amount: habitAmount.value,
+      frequency: habitFrequency.value,
+      category: habitCategory.value,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    setStatus(data.error || "Could not save habit", true);
+    return;
+  }
+  setStatus(`Saved ${habitLabel.value}. Monthly estimate uses ${habitFrequency.value} math.`);
+  habitLabel.value = "";
+  habitAmount.value = "";
+  habitFrequency.value = "daily";
   showRecurring();
 });
 

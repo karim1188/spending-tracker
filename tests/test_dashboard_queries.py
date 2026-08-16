@@ -211,6 +211,38 @@ def test_recurring_monthly_bills_do_not_double_count(tmp_path):
     db.close()
 
 
+def test_manual_daily_habit_does_not_tag_transactions(tmp_path):
+    db = SpendingDatabase(tmp_path / "spending.db")
+    when = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="food",
+            bank="SNB",
+            sender="SNB-AlAhli",
+            transaction_type="card_purchase",
+            amount=40,
+            currency="SAR",
+            merchant="HungerStation",
+            category="Food & Dining",
+            transaction_time=when,
+        )
+    )
+    summary = db.add_manual_habit("Cigarettes", 25, frequency="daily", category="Other")
+    assert summary["monthly_total"] == 750
+    assert summary["yearly_total"] == 750 * 12
+    item = summary["items"][0]
+    assert item["source"] == "manual"
+    assert item["frequency"] == "daily"
+    assert item["amount"] == 25
+    assert item["monthly_amount"] == 750
+    assert db.list_transactions()[0]["is_recurring"] in (0, False)
+    summary = db.mark_recurring(db.list_transactions()[0]["id"])
+    assert summary["monthly_total"] == 790
+    assert any(row["source"] == "transaction" for row in summary["items"])
+    assert db.add_manual_habit("", 25, frequency="daily") is None
+    db.close()
+
+
 def test_dashboard_income_versus_spending(tmp_path):
     db = SpendingDatabase(tmp_path / "spending.db")
     when = datetime(2026, 8, 2, 9, 0, tzinfo=timezone.utc)

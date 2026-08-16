@@ -181,6 +181,26 @@ class LedgerHandler(BaseHTTPRequestHandler):
                     db.set_transaction_category(int(txn_id), category)
             self._send_json({"ok": True})
             return
+        if parsed.path == "/api/recurring":
+            body = self._read_json()
+            try:
+                amount = float(body.get("amount"))
+            except (TypeError, ValueError):
+                self._send_json({"error": "amount required"}, 400)
+                return
+            with SpendingDatabase() as db:
+                summary = db.add_manual_habit(
+                    label=str(body.get("label") or "").strip(),
+                    amount=amount,
+                    frequency=str(body.get("frequency") or "daily"),
+                    category=str(body.get("category") or "").strip() or None,
+                    currency=str(body.get("currency") or "SAR"),
+                )
+            if summary is None:
+                self._send_json({"error": "label, positive amount, and daily/weekly/monthly required"}, 400)
+                return
+            self._send_json({"ok": True, **summary})
+            return
         recurring = RECURRING_TXN_PATH.match(parsed.path)
         if recurring:
             with SpendingDatabase() as db:

@@ -250,6 +250,25 @@ tbody tr { cursor: pointer; }
 .sender-form { padding: 0 1.1rem 1.2rem; display: grid; gap: 0.7rem; }
 .sender-form h3, .detail-card h3 { font-family: var(--display); margin: 0.4rem 1.1rem 0; }
 .sender-form h3 { margin-left: 0; }
+.habit-panel { margin-bottom: 1.25rem; }
+.habit-form { padding: 0 1.1rem 1.2rem; display: grid; gap: 0.8rem; }
+.habit-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr 1fr 1fr;
+  gap: 0.7rem;
+}
+.habit-form input,
+.sender-form input {
+  display: block;
+  width: 100%;
+  margin-top: 0.2rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  padding: 0.35rem 0.45rem;
+  color: var(--ink);
+}
 .help { margin: 0; color: var(--ink-soft); }
 .age { font-family: var(--mono); font-size: 0.78rem; margin: 0; }
 
@@ -389,7 +408,7 @@ tbody tr:hover { background: rgba(196, 92, 38, 0.08); }
   .filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
-  .mast, .hero-metrics, .split, .filters, .detail-grid, .donut-layout { grid-template-columns: 1fr; }
+  .mast, .hero-metrics, .split, .filters, .detail-grid, .donut-layout, .habit-grid { grid-template-columns: 1fr; }
   .mast { padding-top: 1.5rem; }
 }
 

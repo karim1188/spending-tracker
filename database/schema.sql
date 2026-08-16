@@ -71,6 +71,9 @@ CREATE TABLE IF NOT EXISTS recurring_items (
     amount REAL NOT NULL,
     currency TEXT,
     category TEXT,
+    frequency TEXT NOT NULL DEFAULT 'monthly',
+    source TEXT NOT NULL DEFAULT 'transaction',
+    monthly_amount REAL NOT NULL DEFAULT 0,
     source_transaction_id INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME

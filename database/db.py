@@ -8,6 +8,7 @@ from collector.project_paths import SCHEMA_PATH, SPENDING_DB_PATH
 from models.transaction import Transaction
 
 NON_SPENDING_TYPES = ("salary", "bank_transfer_in")
+RECURRING_FREQUENCIES = ("daily", "weekly", "monthly")
 
 COLLECTOR_SOURCE = "macos_messages"
 MONTH_LABELS = (
@@ -24,6 +25,15 @@ def _month_label(period: str) -> str:
     if 1 <= month <= 12:
         return MONTH_LABELS[month - 1]
     return period
+
+
+def monthly_from_frequency(amount: float, frequency: str) -> float:
+    freq = (frequency or "monthly").strip().lower()
+    if freq == "daily":
+        return float(amount) * 30
+    if freq == "weekly":
+        return float(amount) * 52 / 12
+    return float(amount)
 
 
 class SpendingDatabase:
@@ -48,10 +58,32 @@ class SpendingDatabase:
         self.repair_classifications()
 
     def _migrate(self) -> None:
-        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(transactions)")}
-        if "is_recurring" not in columns:
+        txn_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(transactions)")}
+        if "is_recurring" not in txn_columns:
             self.conn.execute(
                 "ALTER TABLE transactions ADD COLUMN is_recurring INTEGER NOT NULL DEFAULT 0"
+            )
+        recurring_columns = {
+            row[1] for row in self.conn.execute("PRAGMA table_info(recurring_items)")
+        }
+        if "frequency" not in recurring_columns:
+            self.conn.execute(
+                "ALTER TABLE recurring_items ADD COLUMN frequency TEXT NOT NULL DEFAULT 'monthly'"
+            )
+        if "source" not in recurring_columns:
+            self.conn.execute(
+                "ALTER TABLE recurring_items ADD COLUMN source TEXT NOT NULL DEFAULT 'transaction'"
+            )
+        if "monthly_amount" not in recurring_columns:
+            self.conn.execute(
+                "ALTER TABLE recurring_items ADD COLUMN monthly_amount REAL NOT NULL DEFAULT 0"
+            )
+            self.conn.execute(
+                """
+                UPDATE recurring_items
+                SET monthly_amount = amount
+                WHERE monthly_amount = 0 OR monthly_amount IS NULL
+                """
             )
 
     def close(self) -> None:
@@ -601,7 +633,11 @@ class SpendingDatabase:
             return
         key = f"merchant:{merchant.strip().upper()}"
         exists = self.conn.execute(
-            "SELECT 1 FROM recurring_items WHERE item_key = ? LIMIT 1",
+            """
+            SELECT 1 FROM recurring_items
+            WHERE item_key = ? AND IFNULL(source, 'transaction') = 'transaction'
+            LIMIT 1
+            """,
             (key,),
         ).fetchone()
         if exists:
@@ -618,26 +654,32 @@ class SpendingDatabase:
             return None
         key = self.recurring_key(row)
         label = (row["merchant"] or row["category"] or row["transaction_type"] or "Monthly bill").strip()
+        amount = float(row["amount"])
         now = datetime.now(timezone.utc).isoformat(sep=" ")
         self.conn.execute(
             """
             INSERT INTO recurring_items (
-                item_key, label, amount, currency, category, source_transaction_id, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                item_key, label, amount, currency, category, frequency, source,
+                monthly_amount, source_transaction_id, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 'monthly', 'transaction', ?, ?, ?)
             ON CONFLICT(item_key) DO UPDATE SET
                 label = excluded.label,
                 amount = excluded.amount,
                 currency = excluded.currency,
                 category = excluded.category,
+                frequency = 'monthly',
+                source = 'transaction',
+                monthly_amount = excluded.monthly_amount,
                 source_transaction_id = excluded.source_transaction_id,
                 updated_at = excluded.updated_at
             """,
             (
                 key,
                 label,
-                float(row["amount"]),
+                amount,
                 row["currency"],
                 row["category"],
+                amount,
                 txn_id,
                 now,
             ),
@@ -653,6 +695,54 @@ class SpendingDatabase:
                 "UPDATE transactions SET is_recurring = 1 WHERE id = ?",
                 (txn_id,),
             )
+        self.conn.commit()
+        return self.recurring_summary()
+
+    def add_manual_habit(
+        self,
+        label: str,
+        amount: float,
+        frequency: str = "daily",
+        category: str | None = None,
+        currency: str = "SAR",
+    ) -> dict | None:
+        label = (label or "").strip()
+        frequency = (frequency or "daily").strip().lower()
+        if not label or amount is None or amount <= 0:
+            return None
+        if frequency not in RECURRING_FREQUENCIES:
+            return None
+        key = f"manual:{label.casefold()}"
+        monthly = monthly_from_frequency(amount, frequency)
+        now = datetime.now(timezone.utc).isoformat(sep=" ")
+        self.conn.execute(
+            """
+            INSERT INTO recurring_items (
+                item_key, label, amount, currency, category, frequency, source,
+                monthly_amount, source_transaction_id, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'manual', ?, NULL, ?)
+            ON CONFLICT(item_key) DO UPDATE SET
+                label = excluded.label,
+                amount = excluded.amount,
+                currency = excluded.currency,
+                category = excluded.category,
+                frequency = excluded.frequency,
+                source = 'manual',
+                monthly_amount = excluded.monthly_amount,
+                source_transaction_id = NULL,
+                updated_at = excluded.updated_at
+            """,
+            (
+                key,
+                label,
+                float(amount),
+                currency or "SAR",
+                (category or "").strip() or None,
+                frequency,
+                monthly,
+                now,
+            ),
+        )
         self.conn.commit()
         return self.recurring_summary()
 
@@ -690,21 +780,44 @@ class SpendingDatabase:
     def recurring_summary(self) -> dict:
         items = self.conn.execute(
             """
-            SELECT id, item_key, label, amount, currency, category, source_transaction_id, updated_at
+            SELECT id, item_key, label, amount, currency, category, frequency, source,
+                   monthly_amount, source_transaction_id, updated_at
             FROM recurring_items
-            ORDER BY amount DESC, label
+            ORDER BY monthly_amount DESC, label
             """
         ).fetchall()
-        monthly = sum(float(row["amount"] or 0) for row in items)
+        public_items = []
+        monthly = 0.0
         by_category: dict[str, float] = {}
         for row in items:
-            label = row["category"] or "Other"
-            by_category[label] = by_category.get(label, 0) + float(row["amount"] or 0)
+            amount = float(row["amount"] or 0)
+            frequency = (row["frequency"] or "monthly").lower()
+            monthly_amount = float(row["monthly_amount"] or 0)
+            if monthly_amount <= 0:
+                monthly_amount = monthly_from_frequency(amount, frequency)
+            monthly += monthly_amount
+            cat = row["category"] or "Other"
+            by_category[cat] = by_category.get(cat, 0) + monthly_amount
+            public_items.append(
+                {
+                    "id": row["id"],
+                    "item_key": row["item_key"],
+                    "label": row["label"],
+                    "amount": amount,
+                    "currency": row["currency"],
+                    "category": row["category"],
+                    "frequency": frequency,
+                    "source": row["source"] or "transaction",
+                    "monthly_amount": monthly_amount,
+                    "source_transaction_id": row["source_transaction_id"],
+                    "updated_at": row["updated_at"],
+                }
+            )
         return {
-            "item_count": len(items),
+            "item_count": len(public_items),
             "monthly_total": monthly,
             "yearly_total": monthly * 12,
-            "items": [dict(row) for row in items],
+            "items": public_items,
             "by_category": [
                 {"label": label, "total_amount": total}
                 for label, total in sorted(by_category.items(), key=lambda item: item[1], reverse=True)
