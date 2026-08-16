@@ -6,7 +6,13 @@ from collections.abc import Callable
 from typing import Any
 
 from collector.logging_config import get_logger
-from notify.menu import menu_button_rows, menu_message, parse_callback_data, parse_menu_command
+from notify.menu import (
+    menu_button_rows,
+    menu_message,
+    parse_callback_data,
+    parse_menu_command,
+    reply_keyboard_rows,
+)
 from notify.settings import TelegramSettings, load_telegram_settings
 from notify.theme import BRAND, card
 
@@ -64,7 +70,10 @@ class TelegramHub:
         if not text:
             return
         if self.ready and self._loop is not None:
-            future = asyncio.run_coroutine_threadsafe(self._send_async(text, buttons=buttons), self._loop)
+            future = asyncio.run_coroutine_threadsafe(
+                self._send_async(text, buttons=buttons if buttons is not None else self._reply_keyboard()),
+                self._loop,
+            )
             future.result(timeout=60)
             return
         from notify.telegram import send_telegram_oneshot
@@ -72,12 +81,25 @@ class TelegramHub:
         send_telegram_oneshot(self.settings, text)
 
     def send_menu(self) -> None:
-        self.send(menu_message(), buttons=self._telethon_buttons())
+        # Inline grid on the card + persistent reply keyboard for tap-only use.
+        self.send(menu_message(), buttons=self._menu_with_reply_keyboard())
 
-    def _telethon_buttons(self) -> list:
+    def _reply_keyboard(self) -> list:
+        from telethon import Button
+
+        return [[Button.text(label) for label in row] for row in reply_keyboard_rows()]
+
+    def _inline_buttons(self) -> list:
         from telethon import Button
 
         return [[Button.inline(label, data) for label, data in row] for row in menu_button_rows()]
+
+    def _menu_with_reply_keyboard(self) -> list:
+        # Prefer the sticky reply keyboard so every action is one press.
+        return self._reply_keyboard()
+
+    def _telethon_buttons(self) -> list:
+        return self._reply_keyboard()
 
     async def _send_async(self, text: str, *, buttons: list | None = None) -> None:
         assert self._client is not None
@@ -137,9 +159,9 @@ class TelegramHub:
             await self._handle_action(event, action)
 
         self._ready.set()
-        logger.info("Telegram menu ready — send menu in Saved Messages for Day/Week/Month/Year")
+        logger.info("Telegram tap menu ready — reply keyboard stays open in Saved Messages")
         try:
-            await self._send_async(menu_message(), buttons=self._telethon_buttons())
+            await self._send_async(menu_message(), buttons=self._reply_keyboard())
         except Exception as exc:  # noqa: BLE001
             logger.info("Could not send opening menu: %s", exc)
         try:
@@ -171,10 +193,11 @@ class TelegramHub:
     async def _handle_action(self, event, action: str) -> None:
         try:
             if action == "menu":
-                await event.respond(menu_message(), buttons=self._telethon_buttons())
+                await event.respond(menu_message(), buttons=self._reply_keyboard())
                 return
             text = await asyncio.to_thread(self._build_action_text, action)
-            await event.respond(text)
+            # Always re-attach the tap keyboard under every report.
+            await event.respond(text, buttons=self._reply_keyboard())
         except Exception as exc:  # noqa: BLE001
             logger.info("Telegram menu action failed (%s): %s", action, exc)
             try:
@@ -185,7 +208,8 @@ class TelegramHub:
                         sections=[[str(exc)]],
                         badge="failed",
                         footer=BRAND,
-                    )
+                    ),
+                    buttons=self._reply_keyboard(),
                 )
             except Exception:
                 pass

@@ -9,6 +9,13 @@ MENU_ACTIONS = (*MENU_PERIODS, "health", "thermal", "menu")
 
 _CALLBACK_PREFIX = "rpt:"
 
+# Persistent chat keyboard labels (tap only — no typing).
+REPLY_KEYBOARD_ROWS: tuple[tuple[str, ...], ...] = (
+    ("Day", "Week", "Month"),
+    ("Year", "Monthly1", "Server"),
+    ("Menu",),
+)
+
 _COMMAND_ALIASES = {
     "menu": "menu",
     "start": "menu",
@@ -39,25 +46,28 @@ _COMMAND_ALIASES = {
 
 def menu_message() -> str:
     body = [
-        "Tap a button below, or send a short command:",
+        "Tap a button below.",
+        "No typing needed.",
         "",
-        "day · week · month · year",
-        "monthly1  (day-by-day from the 1st)",
-        "health / cpu / ram / server",
-        "menu  (open this again)",
+        "Day · Week · Month · Year",
+        "Monthly1 · Server · Menu",
         "",
-        "Reports stay on this Mac. Nothing leaves except these Telegram notes.",
+        "The keyboard stays open in this chat.",
     ]
     return card(
         "Menu",
-        subtitle="Choose a report",
+        subtitle="Press only",
         sections=[body],
         footer=BRAND,
     )
 
 
+def reply_keyboard_rows() -> list[list[str]]:
+    return [list(row) for row in REPLY_KEYBOARD_ROWS]
+
+
 def menu_button_rows() -> list[list[tuple[str, bytes]]]:
-    """Label + callback payload pairs for Telethon Button.inline."""
+    """Inline buttons under the menu card (also tap-only)."""
     return [
         [("Day", f"{_CALLBACK_PREFIX}day".encode()), ("Week", f"{_CALLBACK_PREFIX}week".encode())],
         [("Month", f"{_CALLBACK_PREFIX}month".encode()), ("Year", f"{_CALLBACK_PREFIX}year".encode())],
@@ -77,7 +87,7 @@ def parse_callback_data(data: bytes | str | None) -> str | None:
 
 
 def parse_menu_command(text: str | None) -> str | None:
-    """Return menu action from a short user message, or None if not a command."""
+    """Return menu action from a button label or short command."""
     if not text:
         return None
     cleaned = text.strip()
