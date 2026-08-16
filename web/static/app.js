@@ -505,6 +505,48 @@ document.querySelectorAll(".tg-report").forEach((button) => {
   });
 });
 
+const overheatTestBtn = document.getElementById("overheat-test-btn");
+if (overheatTestBtn) {
+  overheatTestBtn.addEventListener("click", async () => {
+    overheatTestBtn.disabled = true;
+    setStatus("Sending overheat test to Telegram…");
+    try {
+      const response = await fetch("/api/telegram/overheat-test", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) {
+        setStatus(data.error || "Could not send overheat test", true);
+        return;
+      }
+      const temp =
+        data.celsius != null ? `${Number(data.celsius).toFixed(1)}°C` : "temp unavailable";
+      setStatus(`Overheat test sent · ${temp} (threshold ${data.threshold_celsius}°C) · app not stopped`);
+    } catch (error) {
+      setStatus(String(error), true);
+    } finally {
+      overheatTestBtn.disabled = false;
+    }
+  });
+}
+
+async function refreshThermalStrip() {
+  try {
+    const response = await fetch("/api/thermal");
+    if (!response.ok) return;
+    const data = await response.json();
+    if (!data.available) return;
+    const temp =
+      data.celsius != null ? `${Number(data.celsius).toFixed(1)}°C` : "throttling";
+    const flag = data.overheating ? " · OVERHEAT" : "";
+    if (!statusStrip.textContent || statusStrip.hidden) {
+      setStatus(`Mac CPU ${temp}${flag}`);
+    }
+  } catch {
+    /* thermal is optional on non-Mac */
+  }
+}
+
+refreshThermalStrip();
+
 merchantForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const response = await fetch("/api/merchant-rules", {

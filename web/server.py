@@ -154,6 +154,18 @@ class LedgerHandler(BaseHTTPRequestHandler):
             with SpendingDatabase() as db:
                 self._send_json(db.recurring_summary())
             return
+        if parsed.path == "/api/thermal":
+            from notify.settings import load_telegram_settings
+            from notify.thermal import read_thermal_status
+            from notify.alerts import thermal_payload
+
+            settings = load_telegram_settings()
+            threshold = settings.overheat_celsius if settings else 90.0
+            status = read_thermal_status()
+            payload = thermal_payload(status, threshold)
+            payload["overheat_kill"] = bool(settings.overheat_kill) if settings else True
+            self._send_json(payload)
+            return
         self._send_json({"error": "not found"}, 404)
 
     def do_POST(self) -> None:
@@ -212,6 +224,15 @@ class LedgerHandler(BaseHTTPRequestHandler):
 
                 with SpendingDatabase() as db:
                     result = send_period_report(db, period)
+                self._send_json(result)
+            except Exception as exc:  # noqa: BLE001 — surface setup errors to UI
+                self._send_json({"error": str(exc)}, 503)
+            return
+        if parsed.path == "/api/telegram/overheat-test":
+            try:
+                from notify.alerts import send_overheat_test
+
+                result = send_overheat_test()
                 self._send_json(result)
             except Exception as exc:  # noqa: BLE001 — surface setup errors to UI
                 self._send_json({"error": str(exc)}, 503)

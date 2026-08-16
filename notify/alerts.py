@@ -9,7 +9,9 @@ from zoneinfo import ZoneInfo
 from collector.logging_config import get_logger
 from database.db import SpendingDatabase
 from notify.settings import TelegramSettings, load_telegram_settings
+from notify.shutdown import request_shutdown
 from notify.telegram import sender_from_settings
+from notify.thermal import ThermalStatus, read_thermal_status
 
 WARNING_KEY = "last_warning_day"
 NEAR_LIMIT_KEY = "last_near_limit_day"
@@ -94,6 +96,83 @@ def format_near_limit(
     )
 
 
+def format_overheat(
+    status: ThermalStatus,
+    threshold: float,
+    *,
+    test: bool = False,
+    will_kill: bool = False,
+) -> str:
+    prefix = "[TEST] " if test else ""
+    temp = f"{status.celsius:.1f}°C" if status.celsius is not None else "unknown"
+    lines = [
+        f"{prefix}Mac overheat warning",
+        f"CPU: {temp} (threshold {threshold:.0f}°C)",
+        f"Source: {status.source}",
+    ]
+    if status.cpu_speed_limit is not None:
+        lines.append(f"CPU speed limit: {status.cpu_speed_limit}%")
+    if status.detail:
+        lines.append(status.detail)
+    if will_kill:
+        lines.append("Stopping the spending tracker to cool down.")
+    elif test:
+        lines.append("Test only — app will not stop.")
+    return "\n".join(lines)
+
+
+def thermal_payload(status: ThermalStatus, threshold: float) -> dict:
+    return {
+        "celsius": status.celsius,
+        "source": status.source,
+        "cpu_speed_limit": status.cpu_speed_limit,
+        "detail": status.detail,
+        "available": status.available,
+        "threshold_celsius": threshold,
+        "overheating": status.is_overheating(threshold),
+    }
+
+
+def send_overheat_test(
+    settings: TelegramSettings | None = None,
+    send: Callable[[str], None] | None = None,
+    status: ThermalStatus | None = None,
+) -> dict:
+    """Send a Telegram overheat test message. Never triggers the kill switch."""
+    settings = settings if settings is not None else load_telegram_settings()
+    if send is None:
+        send = sender_from_settings(settings)
+    if settings is None or send is None:
+        raise RuntimeError("Telegram is not configured. Add config/telegram.json and run telegram_login.py once.")
+    status = status if status is not None else read_thermal_status()
+    threshold = settings.overheat_celsius
+    text = format_overheat(status, threshold, test=True, will_kill=False)
+    send(text)
+    return {"ok": True, "test": True, "killed": False, **thermal_payload(status, threshold)}
+
+
+def check_thermal(
+    settings: TelegramSettings,
+    send: Callable[[str], None],
+    status: ThermalStatus | None = None,
+    kill: Callable[[str], bool] | None = None,
+) -> list[str]:
+    """Warn on Telegram when overheating; optionally request app shutdown."""
+    status = status if status is not None else read_thermal_status()
+    threshold = settings.overheat_celsius
+    if not status.is_overheating(threshold):
+        return []
+    will_kill = bool(settings.overheat_kill)
+    send(format_overheat(status, threshold, test=False, will_kill=will_kill))
+    results = ["overheat"]
+    if will_kill:
+        kill_fn = kill if kill is not None else request_shutdown
+        temp = f"{status.celsius:.1f}°C" if status.celsius is not None else "throttling"
+        kill_fn(f"Mac overheating ({temp}, threshold {threshold:.0f}°C)")
+        results.append("kill")
+    return results
+
+
 def send_period_report(
     db: SpendingDatabase,
     period: str,
@@ -162,20 +241,31 @@ def run_loop(interval: float = 60.0) -> None:
     if settings is None:
         logger.info("Telegram alerts off: copy config/telegram.example.json to config/telegram.json")
         return
+    send = sender_from_settings(settings)
+    if send is None:
+        logger.info("Telegram alerts off: session not ready (run telegram_login.py)")
+        return
     logger.info(
-        "Telegram alerts on. Daily digest at %02d:%02d, near-limit at SAR %.0f left, hard warning at SAR %.0f",
+        "Telegram alerts on. Daily digest at %02d:%02d, near-limit at SAR %.0f left, hard warning at SAR %.0f · overheat %.0f°C kill=%s",
         settings.daily_hour,
         settings.daily_minute,
         settings.near_limit_sar,
         settings.daily_limit_sar,
+        settings.overheat_celsius,
+        settings.overheat_kill,
     )
     while True:
         try:
             _sync_quietly()
             with SpendingDatabase() as db:
-                sent = tick(db, settings=settings)
+                sent = tick(db, settings=settings, send=send)
             if sent:
                 logger.info("Telegram sent: %s", ", ".join(sent))
+            thermal = check_thermal(settings, send=send)
+            if thermal:
+                logger.info("Thermal: %s", ", ".join(thermal))
+            if "kill" in thermal:
+                return
         except Exception as exc:  # noqa: BLE001 — keep the ledger running
             logger.info("Telegram alert cycle failed: %s", exc)
         time.sleep(interval)

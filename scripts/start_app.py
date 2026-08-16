@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
@@ -11,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from collector.logging_config import setup_logging
+from notify.shutdown import register_shutdown
 from web.server import HOST, PORT, advertised_urls, serve
 
 
@@ -35,6 +38,18 @@ def main() -> int:
 
     setup_logging()
     httpd = serve(host, args.port)
+
+    def _on_shutdown(reason: str) -> None:
+        print(f"[WARN] Shutting down: {reason}")
+        try:
+            httpd.shutdown()
+        finally:
+            # Brief pause so an in-flight Telegram send can finish, then hard-exit.
+            time.sleep(0.8)
+            os._exit(0)
+
+    register_shutdown(_on_shutdown)
+
     urls = advertised_urls(host, args.port)
     print(f"[INFO] Ledger UI on this Mac: {urls[0]}")
     for url in urls[1:]:

@@ -7,5 +7,7 @@
   "daily_hour": 21,
   "daily_minute": 0,
   "daily_limit_sar": 200,
-  "near_limit_sar": 50
+  "near_limit_sar": 50,
+  "overheat_celsius": 90,
+  "overheat_kill": true
 }
