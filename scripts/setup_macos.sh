@@ -10,10 +10,23 @@ echo
 
 pick_python() {
   local candidate
-  for candidate in python3.13 python3.12 python3.11; do
-    if command -v "$candidate" >/dev/null 2>&1; then
-      echo "$candidate"
-      return 0
+  local paths=(
+    python3.13
+    python3.12
+    python3.11
+    /Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13
+    /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
+    /usr/local/bin/python3.13
+    /opt/homebrew/bin/python3.13
+    /opt/homebrew/opt/python@3.13/bin/python3.13
+    /usr/local/opt/python@3.13/bin/python3.13
+  )
+  for candidate in "${paths[@]}"; do
+    if command -v "$candidate" >/dev/null 2>&1 || [ -x "$candidate" ]; then
+      if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
+        echo "$candidate"
+        return 0
+      fi
     fi
   done
   if command -v python3 >/dev/null 2>&1; then
@@ -60,7 +73,7 @@ if [ "$PY_MAJOR" -lt 3 ] || [ "$PY_MINOR" -lt 11 ]; then
   exit 1
 fi
 
-"$PYTHON_BIN" -m venv .venv
+"$PYTHON_BIN" -m venv --clear .venv
 # shellcheck disable=SC1091
 source .venv/bin/activate
 python3 -m pip install --upgrade pip

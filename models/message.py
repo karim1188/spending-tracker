@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 
-@dataclass(slots=True)
+@dataclass
 class Message:
     id: int
     guid: str

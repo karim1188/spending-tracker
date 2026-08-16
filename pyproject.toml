@@ -13,18 +13,15 @@ readme = "README.md"
 dev = ["pytest>=8.0"]
 
 [tool.setuptools]
-include-package-data = true
-
-[tool.setuptools.packages.find]
-include = [
-    "collector*",
-    "parsers*",
-    "categorizer*",
-    "database*",
-    "models*",
-    "config*",
+packages = [
+    "collector",
+    "parsers",
+    "parsers.banks",
+    "categorizer",
+    "database",
+    "models",
+    "config",
 ]
-exclude = ["tests*", "scripts*", "logs*", "docs*", "vendor*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

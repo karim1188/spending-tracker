@@ -14,7 +14,7 @@ from parsers.bank_detector import BankDetector
 logger = get_logger()
 
 
-@dataclass(slots=True)
+@dataclass
 class SyncStats:
     scanned: int = 0
     ignored_non_bank: int = 0

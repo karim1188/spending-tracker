@@ -55,7 +55,7 @@ class MessagesAccessError(RuntimeError):
         self.full_disk_access = full_disk_access
 
 
-@dataclass(slots=True)
+@dataclass
 class AccessResult:
     ok: bool
     path: Path

@@ -7,7 +7,7 @@ from pathlib import Path
 from collector.project_paths import BANKS_CONFIG_PATH
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class BankConfig:
     name: str
     senders: tuple[str, ...]

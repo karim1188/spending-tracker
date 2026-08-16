@@ -21,7 +21,7 @@ TRANSACTION_TYPES = (
 )
 
 
-@dataclass(slots=True)
+@dataclass
 class Transaction:
     source_message_guid: str
     bank: str | None = None
