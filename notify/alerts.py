@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -11,7 +12,17 @@ from notify.settings import TelegramSettings, load_telegram_settings
 from notify.telegram import sender_from_settings
 
 WARNING_KEY = "last_warning_day"
+NEAR_LIMIT_KEY = "last_near_limit_day"
 DIGEST_KEY = "last_digest_day"
+
+NEAR_LIMIT_LINES = (
+    "Hey — you're near the limit. Put the card down like it owes you rent.",
+    "Heads up: almost at the wall. Your wallet just filed a restraining order.",
+    "Slow down, cowboy — only a little runway left before the daily siren.",
+    "Friendly nudge from Future You: stop spending. Leftovers are a lifestyle.",
+    "So close to the limit I can hear your bank account whispering 'please'.",
+    "Almost at the ceiling. Treat the next purchase like it's optional (it is).",
+)
 
 
 def format_sar(amount: float) -> str:
@@ -68,6 +79,21 @@ def format_warning(report: dict, limit: float) -> str:
     )
 
 
+def format_near_limit(
+    report: dict,
+    limit: float,
+    cushion: float,
+    line: str | None = None,
+) -> str:
+    remaining = max(0.0, limit - report["total_amount"])
+    pick = line if line is not None else random.choice(NEAR_LIMIT_LINES)
+    return (
+        f"{pick}\n\n"
+        f"Today: {format_sar(report['total_amount'])} · "
+        f"{format_sar(remaining)} left (warning kicks in under {format_sar(cushion)} of {format_sar(limit)})."
+    )
+
+
 def send_period_report(
     db: SpendingDatabase,
     period: str,
@@ -106,13 +132,25 @@ def tick(
     day = stamp.date().isoformat()
     report = db.day_spending_report(day)
     sent: list[str] = []
-    if report["total_amount"] >= settings.daily_limit_sar and db.notify_value(WARNING_KEY) != day:
-        send(format_warning(report, settings.daily_limit_sar))
+    spent = report["total_amount"]
+    limit = settings.daily_limit_sar
+    cushion = settings.near_limit_sar
+    near_floor = max(0.0, limit - cushion)
+    if spent >= limit and db.notify_value(WARNING_KEY) != day:
+        send(format_warning(report, limit))
         db.set_notify_value(WARNING_KEY, day)
         sent.append("warning")
+    elif (
+        spent >= near_floor
+        and spent < limit
+        and db.notify_value(NEAR_LIMIT_KEY) != day
+    ):
+        send(format_near_limit(report, limit, cushion))
+        db.set_notify_value(NEAR_LIMIT_KEY, day)
+        sent.append("near_limit")
     digest_due = (stamp.hour, stamp.minute) >= (settings.daily_hour, settings.daily_minute)
     if digest_due and db.notify_value(DIGEST_KEY) != day:
-        send(format_day_report(report, settings.daily_limit_sar))
+        send(format_day_report(report, limit))
         db.set_notify_value(DIGEST_KEY, day)
         sent.append("digest")
     return sent
@@ -124,7 +162,13 @@ def run_loop(interval: float = 60.0) -> None:
     if settings is None:
         logger.info("Telegram alerts off: copy config/telegram.example.json to config/telegram.json")
         return
-    logger.info("Telegram alerts on. Daily digest at %02d:%02d, warning at SAR %.0f", settings.daily_hour, settings.daily_minute, settings.daily_limit_sar)
+    logger.info(
+        "Telegram alerts on. Daily digest at %02d:%02d, near-limit at SAR %.0f left, hard warning at SAR %.0f",
+        settings.daily_hour,
+        settings.daily_minute,
+        settings.near_limit_sar,
+        settings.daily_limit_sar,
+    )
     while True:
         try:
             _sync_quietly()

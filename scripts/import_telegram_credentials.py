@@ -40,6 +40,7 @@ def main() -> int:
         "daily_hour": example.get("daily_hour", 21),
         "daily_minute": example.get("daily_minute", 0),
         "daily_limit_sar": example.get("daily_limit_sar", 200),
+        "near_limit_sar": example.get("near_limit_sar", 50),
     }
     TELEGRAM_CONFIG_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {TELEGRAM_CONFIG_PATH} (gitignored). Chat is Saved Messages (me).")

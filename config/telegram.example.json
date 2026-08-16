@@ -6,5 +6,6 @@
   "timezone": "Asia/Riyadh",
   "daily_hour": 21,
   "daily_minute": 0,
-  "daily_limit_sar": 200
+  "daily_limit_sar": 200,
+  "near_limit_sar": 50
 }

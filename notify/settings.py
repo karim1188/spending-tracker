@@ -18,6 +18,7 @@ class TelegramSettings:
     daily_hour: int = 21
     daily_minute: int = 0
     daily_limit_sar: float = 200.0
+    near_limit_sar: float = 50.0
     session_path: Path = Path("config/telegram")
 
     @property
@@ -49,5 +50,6 @@ def load_telegram_settings(path: Path | None = None) -> TelegramSettings | None:
         daily_hour=int(data.get("daily_hour") or 21),
         daily_minute=int(data.get("daily_minute") or 0),
         daily_limit_sar=float(data.get("daily_limit_sar") or 200),
+        near_limit_sar=float(data.get("near_limit_sar") or 50),
         session_path=session_path,
     )
