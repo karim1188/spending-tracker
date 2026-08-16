@@ -128,15 +128,17 @@ def test_period_reports_day_week_month_year(tmp_path):
     db.close()
 
 
-def test_week_report_on_monday_is_not_same_day(tmp_path):
+def test_week_report_looks_back_seven_days(tmp_path):
     db = SpendingDatabase(tmp_path / "spending.db")
     monday = datetime(2026, 8, 17, 12, 0, tzinfo=RIYADH)
     _spend(db, "mon", 40, datetime(2026, 8, 17, 8, 0, tzinfo=ZoneInfo("UTC")))
     _spend(db, "sun", 25, datetime(2026, 8, 16, 8, 0, tzinfo=ZoneInfo("UTC")))
+    _spend(db, "old", 15, datetime(2026, 8, 10, 8, 0, tzinfo=ZoneInfo("UTC")))
+    _spend(db, "too-old", 99, datetime(2026, 8, 9, 8, 0, tzinfo=ZoneInfo("UTC")))
     week = db.period_spending_report("week", now=monday)
-    assert week["start"] == "2026-08-17"
-    assert week["end"] == "2026-08-23"
-    assert week["start"] != week["end"]
-    assert week["total_amount"] == 40
-    assert "2026-08-17 → 2026-08-23" in week["title"]
+    assert week["start"] == "2026-08-11"
+    assert week["end"] == "2026-08-17"
+    assert week["start"] < week["end"]
+    assert week["total_amount"] == 65
+    assert "2026-08-11 → 2026-08-17" in week["title"]
     db.close()

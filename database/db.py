@@ -873,23 +873,20 @@ class SpendingDatabase:
             end = today
             title = f"Day · {today.isoformat()}"
         elif period == "week":
-            # ISO week: Monday → Sunday (never collapse to a single day on Mondays).
-            start = today.fromordinal(today.toordinal() - today.weekday())
-            end = start.fromordinal(start.toordinal() + 6)
+            # Last 7 days ending today (never extends into future dates).
+            end = today
+            start = today.fromordinal(today.toordinal() - 6)
             title = f"Week · {start.isoformat()} → {end.isoformat()}"
         elif period == "month":
-            import calendar
-
             start = today.replace(day=1)
-            end = today.replace(day=calendar.monthrange(today.year, today.month)[1])
-            title = f"Month · {start.isoformat()} → {min(end, today).isoformat()}"
+            end = today
+            title = f"Month · {start.isoformat()} → {end.isoformat()}"
         else:
             start = today.replace(month=1, day=1)
-            end = today.replace(month=12, day=31)
-            title = f"Year · {start.isoformat()} → {min(end, today).isoformat()}"
+            end = today
+            title = f"Year · {start.isoformat()} → {end.isoformat()}"
 
-        # Spending only counts through today (no future dates).
-        spend_end = min(end, today)
+        spend_end = end
 
         rows = self.conn.execute(
             """
