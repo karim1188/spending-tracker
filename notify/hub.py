@@ -141,15 +141,10 @@ class TelegramHub:
             await self._send_async(menu_message(), buttons=self._telethon_buttons())
         except Exception as exc:  # noqa: BLE001
             logger.info("Could not send opening menu: %s", exc)
-        periodic = asyncio.create_task(self._periodic_alerts())
         try:
             await client.run_until_disconnected()
         finally:
-            periodic.cancel()
-            try:
-                await periodic
-            except asyncio.CancelledError:
-                pass
+            pass
 
     async def _is_allowed_message(self, event, my_id: int) -> bool:
         # Only Saved Messages / configured private chat; ignore long report dumps.
@@ -202,33 +197,6 @@ class TelegramHub:
             report = db.period_spending_report(action, timezone_name=self.settings.timezone)
         limit = self.settings.daily_limit_sar if action == "day" else None
         return format_period_report(report, limit)
-
-    async def _periodic_alerts(self) -> None:
-        # Slight delay so the client is fully up before first sync/send.
-        await asyncio.sleep(2)
-        while not self._stop.is_set():
-            try:
-                await asyncio.to_thread(self._alert_cycle)
-            except Exception as exc:  # noqa: BLE001
-                logger.info("Telegram alert cycle failed: %s", exc)
-            for _ in range(60):
-                if self._stop.is_set():
-                    return
-                await asyncio.sleep(1)
-
-    def _alert_cycle(self) -> None:
-        from notify.alerts import check_thermal, tick, _sync_quietly
-        from database.db import SpendingDatabase
-
-        _sync_quietly()
-        send = self.send
-        with SpendingDatabase() as db:
-            sent = tick(db, settings=self.settings, send=send)
-        if sent:
-            logger.info("Telegram sent: %s", ", ".join(sent))
-        thermal = check_thermal(self.settings, send=send)
-        if thermal:
-            logger.info("Thermal: %s", ", ".join(thermal))
 
 
 def start_telegram_hub(settings: TelegramSettings | None = None) -> TelegramHub | None:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import random
-import time
 from collections.abc import Callable
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -236,45 +235,14 @@ def tick(
 
 
 def run_loop(interval: float = 60.0) -> None:
-    """Start the Telegram hub (menu + alerts). `interval` kept for API compatibility."""
-    del interval  # hub uses its own 60s cadence
-    logger = get_logger()
-    settings = load_telegram_settings()
-    if settings is None:
-        logger.info("Telegram alerts off: copy config/telegram.example.json to config/telegram.json")
-        return
-    from notify.hub import start_telegram_hub
+    """Idle runtime: Messages file-watch + Telegram menu. `interval` unused."""
+    del interval
+    from notify.idle import start_idle_runtime
 
-    hub = start_telegram_hub(settings)
-    if hub is None:
-        logger.info("Telegram alerts off: session not ready (run telegram_login.py)")
-        return
-    logger.info(
-        "Telegram alerts + menu on. Digest %02d:%02d · near SAR %.0f · warn SAR %.0f · overheat %.0f°C kill=%s · send menu in Saved Messages",
-        settings.daily_hour,
-        settings.daily_minute,
-        settings.near_limit_sar,
-        settings.daily_limit_sar,
-        settings.overheat_celsius,
-        settings.overheat_kill,
-    )
-    # Hub thread owns the client; keep this thread alive until process exit / kill switch.
-    while True:
-        time.sleep(3600)
+    start_idle_runtime()
 
 
 def _sync_quietly() -> None:
-    try:
-        from collector.imessage_reader import IMessageReader, MessagesAccessError
-        from collector.message_collector import MessageCollector
-        from config.loader import BankRegistry
-        from database.db import SpendingDatabase
+    from notify.idle import sync_messages_once
 
-        reader = IMessageReader()
-        access = reader.test_access()
-        if not access.ok:
-            return
-        with SpendingDatabase() as db:
-            MessageCollector(db=db, reader=reader, registry=BankRegistry.load()).sync_all()
-    except Exception:
-        return
+    sync_messages_once()
