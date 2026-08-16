@@ -7,6 +7,8 @@ from pathlib import Path
 from collector.project_paths import SCHEMA_PATH, SPENDING_DB_PATH
 from models.transaction import Transaction
 
+NON_SPENDING_TYPES = ("salary", "bank_transfer_in")
+
 COLLECTOR_SOURCE = "macos_messages"
 
 
@@ -28,6 +30,7 @@ class SpendingDatabase:
             "SNB activation PIN, not a transfer",
         )
         self.purge_pin_messages()
+        self.repair_classifications()
 
     def close(self) -> None:
         self.conn.close()
@@ -109,7 +112,11 @@ class SpendingDatabase:
                 )
         self.conn.commit()
 
-    def upsert_merchant_rule(self, pattern: str, category: str) -> None:
+    def upsert_merchant_rule(self, pattern: str, category: str, apply_existing: bool = False) -> None:
+        pattern = (pattern or "").strip().upper()
+        category = (category or "").strip()
+        if not pattern or not category:
+            return
         self.conn.execute(
             """
             INSERT INTO merchant_rules (pattern, category) VALUES (?, ?)
@@ -117,7 +124,27 @@ class SpendingDatabase:
             """,
             (pattern, category),
         )
+        if apply_existing:
+            self.conn.execute(
+                """
+                UPDATE transactions
+                SET category = ?
+                WHERE instr(UPPER(IFNULL(merchant, '')), UPPER(?)) > 0
+                """,
+                (category, pattern),
+            )
         self.conn.commit()
+
+    def set_transaction_category(self, txn_id: int, category: str) -> bool:
+        category = (category or "").strip()
+        if not category:
+            return False
+        cursor = self.conn.execute(
+            "UPDATE transactions SET category = ? WHERE id = ?",
+            (category, txn_id),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
 
     def merchant_rules(self) -> list[tuple[str, str]]:
         rows = self.conn.execute(
@@ -233,6 +260,32 @@ class SpendingDatabase:
             return False
         self.exclude_guid(row["source_message_guid"], reason)
         return True
+
+    def repair_classifications(self) -> None:
+        from categorizer.categorizer import Categorizer
+        from parsers.generic import infer_transaction_type
+
+        categorizer = Categorizer(dict(self.merchant_rules()))
+        rows = self.conn.execute(
+            "SELECT id, merchant, transaction_type, raw_message FROM transactions"
+        ).fetchall()
+        for row in rows:
+            tx_type = row["transaction_type"] or "unknown"
+            if row["raw_message"]:
+                inferred = infer_transaction_type(row["raw_message"])
+                if inferred != "unknown":
+                    tx_type = inferred
+            category = categorizer.categorize(row["merchant"], tx_type)
+            self.conn.execute(
+                """
+                UPDATE transactions
+                SET transaction_type = ?, category = ?
+                WHERE id = ?
+                """,
+                (tx_type, category, row["id"]),
+            )
+        if rows:
+            self.conn.commit()
 
     def purge_pin_messages(self) -> int:
         from parsers.generic import looks_non_financial
@@ -355,6 +408,8 @@ class SpendingDatabase:
         extra, params = self._period_clause(
             year, month, bank, category, sender, transaction_type, query
         )
+        if transaction_type not in NON_SPENDING_TYPES and category != "Salary":
+            extra = f"{extra}\nAND IFNULL(transaction_type, '') NOT IN ('salary', 'bank_transfer_in')"
         total_row = self.conn.execute(
             f"""
             SELECT

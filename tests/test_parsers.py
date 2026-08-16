@@ -99,6 +99,18 @@ def test_alinma_salary():
     assert tx.balance == 15000.0
 
 
+def test_snb_incoming_salary_transfer():
+    registry = make_bank_registry(SNB=("SNB-AlAhli",))
+    parser = SnbParser(registry)
+    tx = parser.parse(_msg("SNB-AlAhli", "حوالة واردة راتب\nمبلغ SAR 10000"))
+    assert tx is not None
+    assert tx.transaction_type == "salary"
+    assert tx.amount == 10000.0
+    incoming = parser.parse(_msg("SNB-AlAhli", "حوالة واردة بمبلغ 500 SAR"))
+    assert incoming is not None
+    assert incoming.transaction_type == "bank_transfer_in"
+
+
 def test_unknown_when_confidence_low():
     registry = make_bank_registry(SNB=("SNB",))
     parser = SnbParser(registry)

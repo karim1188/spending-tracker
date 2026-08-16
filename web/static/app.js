@@ -21,10 +21,9 @@ const viewDetail = document.getElementById("view-detail");
 const detailGrid = document.getElementById("detail-grid");
 const detailRaw = document.getElementById("detail-raw");
 const detailAge = document.getElementById("detail-age");
-const ruleSender = document.getElementById("rule-sender");
+const ruleMerchant = document.getElementById("rule-merchant");
 const ruleCategory = document.getElementById("rule-category");
-const ruleBank = document.getElementById("rule-bank");
-const senderForm = document.getElementById("sender-form");
+const merchantForm = document.getElementById("merchant-form");
 const deleteBtn = document.getElementById("delete-btn");
 const excludeBtn = document.getElementById("exclude-btn");
 
@@ -121,14 +120,15 @@ async function loadFilters() {
   fillSelect(filterCategory, filterCatalog.categories || [], filterCategory.value, "All");
   fillSelect(filterType, filterCatalog.types || [], filterType.value, "All");
   fillSelect(ruleCategory, filterCatalog.all_categories || [], ruleCategory.value, "Choose category");
-  fillSelect(ruleBank, ["SNB", "MobilyPay", "AlRajhi", "RiyadBank", "SAB", "Alinma"], ruleBank.value, "Keep current");
 }
 
 async function loadSummary() {
   const response = await fetch(`/api/summary?${filterParams().toString()}`);
   const data = await response.json();
   monthEl.textContent = sar(data.total_amount);
-  monthCountEl.textContent = filterYear.value || filterMonth.value ? "for selected period" : "all imported time";
+  monthCountEl.textContent = filterYear.value || filterMonth.value
+    ? "spending in selected period"
+    : "spending only · salary and incoming transfers excluded";
   totalEl.textContent = String(data.txn_count);
   totalCountEl.textContent = "matching filters";
   const checkpoint = (data.checkpoint && data.checkpoint[0]) || null;
@@ -193,9 +193,8 @@ async function showDetail(id) {
   ];
   detailGrid.innerHTML = fields.map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join("");
   detailRaw.textContent = transaction.raw_message || "(no SMS body stored)";
-  ruleSender.value = transaction.sender || "";
+  ruleMerchant.value = transaction.merchant || "";
   ruleCategory.value = transaction.category || "";
-  ruleBank.value = transaction.bank || "";
 }
 
 function showLedger() {
@@ -265,23 +264,24 @@ dedupeBtn.addEventListener("click", async () => {
   }
 });
 
-senderForm.addEventListener("submit", async (event) => {
+merchantForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const response = await fetch("/api/sender-rules", {
+  const response = await fetch("/api/merchant-rules", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      sender: ruleSender.value,
+      merchant: ruleMerchant.value,
       category: ruleCategory.value,
-      bank: ruleBank.value,
+      transaction_id: currentTxnId,
     }),
   });
   const data = await response.json();
   if (!response.ok) {
-    setStatus(data.error || "Could not save sender rule", true);
+    setStatus(data.error || "Could not save merchant category", true);
     return;
   }
-  setStatus(`Saved category for sender ${ruleSender.value}. Future SMS from this sender will use it.`);
+  const target = ruleMerchant.value || "this transaction";
+  setStatus(`Saved category for ${target}. Matching merchants will use it from now on.`);
   if (currentTxnId) showDetail(currentTxnId);
 });
 

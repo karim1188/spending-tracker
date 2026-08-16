@@ -42,8 +42,14 @@ def test_categorizer_merchant_rules():
 def test_categorizer_type_fallback_and_other():
     cat = Categorizer()
     assert cat.categorize(None, "salary") == "Salary"
+    assert cat.categorize(None, "bank_transfer_in") == "Transfers"
     assert cat.categorize(None, "fee") == "Fees"
     assert cat.categorize("UNKNOWN MERCHANT XYZ") == "Other"
+
+
+def test_merchant_rule_beats_sender():
+    cat = Categorizer(extra_rules={"HUNGERSTATION": "Groceries"})
+    assert cat.categorize("HungerStation", "card_purchase") == "Groceries"
 
 
 def test_categorizer_extra_rules_replaceable():

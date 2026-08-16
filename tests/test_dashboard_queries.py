@@ -30,7 +30,7 @@ def test_summary_and_list_transactions(tmp_path):
     db.close()
 
 
-def test_year_filter_and_duplicates_and_sender_rule(tmp_path):
+def test_year_filter_and_duplicates_and_merchant_rule(tmp_path):
     db = SpendingDatabase(tmp_path / "spending.db")
     when = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
     for guid in ("g1", "g2", "g3"):
@@ -52,11 +52,67 @@ def test_year_filter_and_duplicates_and_sender_rule(tmp_path):
     assert db.summary()["txn_count"] == 1
     assert db.list_transactions(year="2026", month="03")
     assert db.list_transactions(year="2025") == []
-    db.upsert_sender_rule("SNB-AlAhli", category="Shopping")
+    db.upsert_merchant_rule("HungerStation", "Shopping", apply_existing=True)
     row = db.get_transaction(db.list_transactions()[0]["id"])
     assert row["category"] == "Shopping"
-    assert db.sender_rule("SNB-AlAhli")["category"] == "Shopping"
     assert db.delete_transaction(row["id"]) is True
+    db.close()
+
+
+def test_salary_and_incoming_transfer_excluded_from_spending(tmp_path):
+    db = SpendingDatabase(tmp_path / "spending.db")
+    when = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="pay",
+            bank="SNB",
+            sender="SNB-AlAhli",
+            transaction_type="card_purchase",
+            amount=80,
+            currency="SAR",
+            merchant="HungerStation",
+            category="Food & Dining",
+            transaction_time=when,
+        )
+    )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="salary",
+            bank="SNB",
+            sender="SNB-AlAhli",
+            transaction_type="bank_transfer_in",
+            amount=10000,
+            currency="SAR",
+            category="Transfers",
+            raw_message="حوالة واردة راتب\nمبلغ SAR 10000",
+            transaction_time=when,
+        )
+    )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="in",
+            bank="SNB",
+            sender="SNB-AlAhli",
+            transaction_type="bank_transfer_in",
+            amount=500,
+            currency="SAR",
+            category="Transfers",
+            raw_message="حوالة واردة مبلغ SAR 500",
+            transaction_time=when,
+        )
+    )
+    db.close()
+    db = SpendingDatabase(tmp_path / "spending.db")
+    salary = db.conn.execute(
+        "SELECT transaction_type, category FROM transactions WHERE source_message_guid = 'salary'"
+    ).fetchone()
+    assert salary["transaction_type"] == "salary"
+    assert salary["category"] == "Salary"
+    summary = db.summary()
+    assert summary["total_amount"] == 80
+    assert summary["txn_count"] == 1
+    assert db.summary(transaction_type="salary")["total_amount"] == 10000
+    assert len(db.list_transactions()) == 3
     db.close()
 
 

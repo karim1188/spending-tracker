@@ -30,9 +30,9 @@
   <main id="view-ledger">
     <section class="hero-metrics" aria-label="Totals">
       <article class="metric metric-primary">
-        <p class="metric-label">Filtered total</p>
+        <p class="metric-label">Spending total</p>
         <p class="metric-value" id="month-amount">—</p>
-        <p class="metric-sub" id="month-count">waiting for sync</p>
+        <p class="metric-sub" id="month-count">salary and incoming transfers excluded</p>
       </article>
       <article class="metric">
         <p class="metric-label">Transactions</p>
@@ -131,18 +131,15 @@
       <dl class="detail-grid" id="detail-grid"></dl>
       <h3>Original SMS</h3>
       <pre id="detail-raw" class="raw-msg"></pre>
-      <form id="sender-form" class="sender-form">
-        <h3>Categorize this sender for later</h3>
-        <p class="help">Applies to this sender from now on, including existing rows.</p>
-        <label>Sender<input id="rule-sender" readonly></label>
+      <form id="merchant-form" class="sender-form">
+        <h3>Categorize this merchant for later</h3>
+        <p class="help">The SMS sender is the bank, so category follows the merchant — including existing rows.</p>
+        <label>Merchant<input id="rule-merchant" readonly></label>
         <label>Category
           <select id="rule-category"></select>
         </label>
-        <label>Bank
-          <select id="rule-bank"></select>
-        </label>
         <div class="action-row">
-          <button class="btn" type="submit">Save sender rule</button>
+          <button class="btn" type="submit">Save merchant category</button>
           <button id="exclude-btn" class="btn btn-ghost" type="button">Exclude this PIN / message</button>
           <button id="delete-btn" class="btn btn-danger" type="button">Delete transaction</button>
         </div>

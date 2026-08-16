@@ -113,18 +113,19 @@ class LedgerHandler(BaseHTTPRequestHandler):
                 removed = db.purge_duplicates()
             self._send_json({"ok": True, "removed": removed})
             return
-        if parsed.path == "/api/sender-rules":
+        if parsed.path == "/api/merchant-rules":
             body = self._read_json()
-            sender = str(body.get("sender") or "").strip()
-            if not sender:
-                self._send_json({"error": "sender required"}, 400)
+            merchant = str(body.get("merchant") or "").strip()
+            category = str(body.get("category") or "").strip()
+            if not category:
+                self._send_json({"error": "category required"}, 400)
                 return
             with SpendingDatabase() as db:
-                db.upsert_sender_rule(
-                    sender=sender,
-                    category=body.get("category") or None,
-                    bank=body.get("bank") or None,
-                )
+                if merchant:
+                    db.upsert_merchant_rule(merchant, category, apply_existing=True)
+                txn_id = body.get("transaction_id")
+                if txn_id and not merchant:
+                    db.set_transaction_category(int(txn_id), category)
             self._send_json({"ok": True})
             return
         exclude = EXCLUDE_PATH.match(parsed.path)
