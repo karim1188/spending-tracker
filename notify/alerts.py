@@ -125,13 +125,19 @@ def format_near_limit(
 def format_monthly1_report(series: dict, monthly_limit: float) -> str:
     spending = float(series.get("spending") or 0)
     income = float(series.get("income") or 0)
+    salary = float(series.get("salary") or 0)
     body = [
         kv("Income", format_sar(income)),
+        kv("Salary", format_sar(salary)),
         kv("Spent", format_sar(spending)),
         kv("Net", format_sar(income - spending)),
         *budget_lines(spending, monthly_limit),
         kv("Through", f"day {series.get('through_day')} / {series.get('days_in_month')}"),
     ]
+    win_start = series.get("salary_window_start")
+    win_end = series.get("salary_window_end")
+    if win_start and win_end:
+        body.append(kv("Salary window", f"{win_start} → {win_end}"))
     day_lines: list[str] = []
     for row in series.get("days") or []:
         if not row["income"] and not row["spending"]:
@@ -151,7 +157,7 @@ def format_monthly1_report(series: dict, monthly_limit: float) -> str:
         subtitle=str(series.get("label") or series.get("period") or "This month"),
         sections=[body, section("Day by day", day_lines)],
         badge="month to date",
-        footer=f"Monthly warn at {format_sar(monthly_limit)} · reply menu",
+        footer=f"Monthly warn at {format_sar(monthly_limit)} · salary ±5 days · reply menu",
     )
 
 

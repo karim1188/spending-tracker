@@ -338,6 +338,56 @@ def test_dashboard_income_versus_spending(tmp_path):
     db.close()
 
 
+def test_salary_pay_window_across_month_boundary(tmp_path):
+    """Salary in the last 5 days before the 1st counts for the next month."""
+    from zoneinfo import ZoneInfo
+
+    db = SpendingDatabase(tmp_path / "spending.db")
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="sal-early",
+            bank="SNB",
+            transaction_type="salary",
+            amount=11000,
+            currency="SAR",
+            category="Salary",
+            transaction_time=datetime(2026, 7, 28, 10, 0, tzinfo=timezone.utc),
+            raw_message="حوالة واردة راتب مبلغ SAR 11000",
+        )
+    )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="sal-late",
+            bank="SNB",
+            transaction_type="salary",
+            amount=500,
+            currency="SAR",
+            category="Salary",
+            transaction_time=datetime(2026, 8, 3, 10, 0, tzinfo=timezone.utc),
+            raw_message="راتب مبلغ SAR 500",
+        )
+    )
+    now = datetime(2026, 8, 10, 12, tzinfo=ZoneInfo("Asia/Riyadh"))
+    series = db.month_day_series(year="2026", month="08", now=now)
+    assert series["salary"] == 11500
+    assert series["days"][0]["income"] == 11000  # early salary on day 1
+    assert series["days"][2]["income"] == 500  # Aug 3
+    july = db.month_day_series(
+        year="2026",
+        month="07",
+        now=datetime(2026, 7, 31, 12, tzinfo=ZoneInfo("Asia/Riyadh")),
+    )
+    assert july["salary"] == 0
+    dash_aug = db.dashboard(year="2026", month="08")
+    assert dash_aug["salary"] == 11500
+    dash_year = db.dashboard(year="2026")
+    august = next(row for row in dash_year["by_month"] if row["period"] == "2026-08")
+    july_row = next(row for row in dash_year["by_month"] if row["period"] == "2026-07")
+    assert august["income"] == 11500
+    assert july_row["income"] == 0
+    db.close()
+
+
 def test_month_day_series_starts_at_day_one(tmp_path):
     from zoneinfo import ZoneInfo
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from collector.project_paths import SCHEMA_PATH, SPENDING_DB_PATH
@@ -522,90 +522,130 @@ class SpendingDatabase:
         year: str | None = None,
         month: str | None = None,
         bank: str | None = None,
+        timezone_name: str = "Asia/Riyadh",
     ) -> dict:
-        extra, params = self._period_clause(year, month, bank)
-        income_sql = "transaction_type IN ('salary', 'bank_transfer_in')"
-        spend_sql = f"IFNULL(transaction_type, '') NOT IN {NON_SPENDING_SQL}"
-        totals = self.conn.execute(
+        """Dashboard totals. Salary is attributed to its pay month (±5 days around the 1st)."""
+        from zoneinfo import ZoneInfo
+
+        from collector.salary_period import pay_month_for_salary
+
+        tz = ZoneInfo(timezone_name)
+        bank_extra = ""
+        bank_params: list = []
+        if bank:
+            bank_extra = " AND bank = ?"
+            bank_params.append(bank)
+
+        rows = self.conn.execute(
             f"""
             SELECT
-                COALESCE(SUM(CASE WHEN {income_sql} THEN amount ELSE 0 END), 0) AS income,
-                COALESCE(SUM(CASE WHEN {spend_sql} THEN amount ELSE 0 END), 0) AS spending,
-                COALESCE(SUM(CASE WHEN transaction_type = 'salary' THEN amount ELSE 0 END), 0) AS salary,
-                COALESCE(SUM(CASE WHEN transaction_type = 'bank_transfer_in' THEN amount ELSE 0 END), 0) AS transfers_in,
-                COUNT(*) AS txn_count
-            FROM transactions
-            WHERE amount IS NOT NULL
-            {extra}
-            """,
-            params,
-        ).fetchone()
-        income = float(totals["income"])
-        spending = float(totals["spending"])
-        by_category = self.conn.execute(
-            f"""
-            SELECT COALESCE(category, 'Other') AS label,
-                   COALESCE(SUM(amount), 0) AS total_amount
-            FROM transactions
-            WHERE amount IS NOT NULL AND {spend_sql}
-            {extra}
-            GROUP BY COALESCE(category, 'Other')
-            ORDER BY total_amount DESC
-            """,
-            params,
-        ).fetchall()
-        month_extra, month_params = self._period_clause(year, None, bank)
-        month_rows = self.conn.execute(
-            f"""
-            SELECT strftime('%Y-%m', COALESCE(transaction_time, created_at)) AS period,
-                   COALESCE(SUM(CASE WHEN {income_sql} THEN amount ELSE 0 END), 0) AS income,
-                   COALESCE(SUM(CASE WHEN {spend_sql} THEN amount ELSE 0 END), 0) AS spending
+                COALESCE(transaction_time, created_at) AS stamp,
+                amount,
+                transaction_type,
+                category,
+                balance,
+                bank
             FROM transactions
             WHERE amount IS NOT NULL
               AND COALESCE(transaction_time, created_at) IS NOT NULL
-            {month_extra}
-            GROUP BY period
-            ORDER BY period
+              {bank_extra}
             """,
-            month_params,
+            bank_params,
         ).fetchall()
-        lookup = {row["period"]: row for row in month_rows if row["period"]}
-        by_month = []
-        for period in self._dashboard_periods(year):
-            row = lookup.get(period)
-            by_month.append(
-                {
-                    "period": period,
-                    "label": _month_label(period),
-                    "income": float(row["income"]) if row else 0.0,
-                    "spending": float(row["spending"]) if row else 0.0,
-                }
+
+        filter_year = int(year) if year else None
+        filter_month = int(month) if month else None
+        periods = self._dashboard_periods(year)
+        period_set = set(periods)
+        month_income = {p: 0.0 for p in periods}
+        month_spend = {p: 0.0 for p in periods}
+        category_totals: dict[str, float] = {}
+        salary = 0.0
+        transfers_in = 0.0
+        spending = 0.0
+        txn_count = 0
+        latest_balance = None
+        latest_balance_at = None
+        latest_balance_bank = None
+        latest_stamp = None
+
+        for row in rows:
+            local_day = self._local_date(row["stamp"], tz)
+            if local_day is None:
+                continue
+            amount = float(row["amount"] or 0)
+            ttype = row["transaction_type"] or ""
+
+            if ttype == "salary":
+                pay_y, pay_m = pay_month_for_salary(local_day)
+                period = f"{pay_y:04d}-{pay_m:02d}"
+                if filter_year is not None and pay_y != filter_year:
+                    continue
+                if filter_month is not None and pay_m != filter_month:
+                    continue
+                salary += amount
+                txn_count += 1
+                if period in period_set:
+                    month_income[period] += amount
+            else:
+                cal_y, cal_m = local_day.year, local_day.month
+                period = f"{cal_y:04d}-{cal_m:02d}"
+                if filter_year is not None and cal_y != filter_year:
+                    continue
+                if filter_month is not None and cal_m != filter_month:
+                    continue
+                txn_count += 1
+                if ttype == "bank_transfer_in":
+                    transfers_in += amount
+                    if period in period_set:
+                        month_income[period] += amount
+                elif ttype not in NON_SPENDING_TYPES:
+                    spending += amount
+                    label = row["category"] or "Other"
+                    category_totals[label] = category_totals.get(label, 0.0) + amount
+                    if period in period_set:
+                        month_spend[period] += amount
+
+            if row["balance"] is not None:
+                stamp = str(row["stamp"])
+                if latest_stamp is None or stamp > latest_stamp:
+                    latest_stamp = stamp
+                    latest_balance = float(row["balance"])
+                    latest_balance_at = stamp
+                    latest_balance_bank = row["bank"]
+
+        income = salary + transfers_in
+        by_category = [
+            {"label": label, "total_amount": total}
+            for label, total in sorted(
+                category_totals.items(), key=lambda item: item[1], reverse=True
             )
-        balance_row = self.conn.execute(
-            f"""
-            SELECT balance, COALESCE(transaction_time, created_at) AS stamp, bank
-            FROM transactions
-            WHERE balance IS NOT NULL
-            {extra}
-            ORDER BY COALESCE(transaction_time, created_at) DESC, id DESC
-            LIMIT 1
-            """,
-            params,
-        ).fetchone()
+        ]
+        by_month = [
+            {
+                "period": period,
+                "label": _month_label(period),
+                "income": month_income[period],
+                "spending": month_spend[period],
+            }
+            for period in periods
+        ]
         rec = self.recurring_summary()
         return {
             "income": income,
             "spending": spending,
             "net": income - spending,
-            "salary": float(totals["salary"]),
-            "transfers_in": float(totals["transfers_in"]),
-            "txn_count": int(totals["txn_count"]),
-            "latest_balance": float(balance_row["balance"]) if balance_row else None,
-            "latest_balance_at": balance_row["stamp"] if balance_row else None,
-            "latest_balance_bank": balance_row["bank"] if balance_row else None,
-            "by_category": [dict(row) for row in by_category],
+            "salary": salary,
+            "transfers_in": transfers_in,
+            "txn_count": txn_count,
+            "latest_balance": latest_balance,
+            "latest_balance_at": latest_balance_at,
+            "latest_balance_bank": latest_balance_bank,
+            "by_category": by_category,
             "by_month": by_month,
-            "month_days": self.month_day_series(year=year, month=month, bank=bank),
+            "month_days": self.month_day_series(
+                year=year, month=month, bank=bank, timezone_name=timezone_name
+            ),
             "recurring_monthly": rec["monthly_total"],
         }
 
@@ -617,9 +657,15 @@ class SpendingDatabase:
         timezone_name: str = "Asia/Riyadh",
         now: datetime | None = None,
     ) -> dict:
-        """Day-by-day income/spending from day 1 of the selected (or current) month."""
+        """Day-by-day income/spending from day 1 of the selected (or current) month.
+
+        Salary uses a pay window: 5 days before month-start through day 5 of the month.
+        Early salary (before the 1st) is shown on day 1.
+        """
         import calendar
         from zoneinfo import ZoneInfo
+
+        from collector.salary_period import salary_chart_day, salary_window
 
         tz = ZoneInfo(timezone_name)
         stamp = now.astimezone(tz) if now else datetime.now(tz)
@@ -635,39 +681,75 @@ class SpendingDatabase:
         last_day = calendar.monthrange(year_n, month_n)[1]
         is_current = year_n == stamp.year and month_n == stamp.month
         through = stamp.day if is_current else last_day
+        month_start = date(year_n, month_n, 1)
+        month_end = date(year_n, month_n, last_day)
+        sal_start, sal_end = salary_window(year_n, month_n)
 
-        income_sql = "transaction_type IN ('salary', 'bank_transfer_in')"
-        spend_sql = f"IFNULL(transaction_type, '') NOT IN {NON_SPENDING_SQL}"
         bank_extra = ""
-        params: list = [f"{year_n:04d}-{month_n:02d}"]
+        bank_params: list = []
         if bank:
             bank_extra = " AND bank = ?"
-            params.append(bank)
+            bank_params.append(bank)
 
-        rows = self.conn.execute(
+        # Non-salary rows in the calendar month (spending + other incoming transfers).
+        cal_rows = self.conn.execute(
             f"""
             SELECT
-                CAST(strftime('%d', COALESCE(transaction_time, created_at)) AS INTEGER) AS day_n,
-                COALESCE(SUM(CASE WHEN {income_sql} THEN amount ELSE 0 END), 0) AS income,
-                COALESCE(SUM(CASE WHEN {spend_sql} THEN amount ELSE 0 END), 0) AS spending
+                COALESCE(transaction_time, created_at) AS stamp,
+                amount,
+                transaction_type
             FROM transactions
             WHERE amount IS NOT NULL
               AND COALESCE(transaction_time, created_at) IS NOT NULL
-              AND strftime('%Y-%m', COALESCE(transaction_time, created_at)) = ?
+              AND IFNULL(transaction_type, '') != 'salary'
               {bank_extra}
-            GROUP BY day_n
-            ORDER BY day_n
             """,
-            params,
+            bank_params,
         ).fetchall()
-        lookup = {int(row["day_n"]): row for row in rows if row["day_n"]}
+        day_income: dict[int, float] = {d: 0.0 for d in range(1, through + 1)}
+        day_spend: dict[int, float] = {d: 0.0 for d in range(1, through + 1)}
+        for row in cal_rows:
+            local_day = self._local_date(row["stamp"], tz)
+            if local_day is None or not (month_start <= local_day <= month_end):
+                continue
+            if local_day.day > through:
+                continue
+            amount = float(row["amount"] or 0)
+            if row["transaction_type"] == "bank_transfer_in":
+                day_income[local_day.day] += amount
+            elif (row["transaction_type"] or "") not in NON_SPENDING_TYPES:
+                day_spend[local_day.day] += amount
+
+        # Salary in the pay window (may spill from the previous calendar month).
+        salary_rows = self.conn.execute(
+            f"""
+            SELECT COALESCE(transaction_time, created_at) AS stamp, amount
+            FROM transactions
+            WHERE amount IS NOT NULL
+              AND transaction_type = 'salary'
+              AND COALESCE(transaction_time, created_at) IS NOT NULL
+              {bank_extra}
+            """,
+            bank_params,
+        ).fetchall()
+        salary_total = 0.0
+        for row in salary_rows:
+            local_day = self._local_date(row["stamp"], tz)
+            if local_day is None:
+                continue
+            chart_day = salary_chart_day(local_day, year_n, month_n)
+            if chart_day is None or chart_day > through:
+                continue
+            amount = float(row["amount"] or 0)
+            day_income[chart_day] += amount
+            salary_total += amount
+
         days = []
         cum_in = 0.0
         cum_out = 0.0
         for day_n in range(1, through + 1):
-            row = lookup.get(day_n)
-            income = float(row["income"]) if row else 0.0
-            spending = float(row["spending"]) if row else 0.0
+            income = day_income.get(day_n, 0.0)
+            spending = day_spend.get(day_n, 0.0)
             cum_in += income
             cum_out += spending
             days.append(
@@ -689,8 +771,19 @@ class SpendingDatabase:
             "days_in_month": last_day,
             "income": cum_in,
             "spending": cum_out,
+            "salary": salary_total,
+            "salary_window_start": sal_start.isoformat(),
+            "salary_window_end": sal_end.isoformat(),
             "days": days,
         }
+
+    def _local_date(self, raw: object, tz) -> date | None:
+        if not raw:
+            return None
+        when = datetime.fromisoformat(str(raw).replace(" ", "T"))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return when.astimezone(tz).date()
 
     def _dashboard_periods(self, year: str | None) -> list[str]:
         if year:
