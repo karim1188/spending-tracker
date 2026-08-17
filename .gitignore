@@ -41,6 +41,7 @@ credentials*
 *.key
 tokens.json
 config/telegram.json
+config/gmail.json
 *.session
 session_*
 

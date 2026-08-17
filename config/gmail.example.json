@@ -1,0 +1,6 @@
+{
+  "email": "you@gmail.com",
+  "app_password": "your-16-char-gmail-app-password",
+  "imap_host": "imap.gmail.com",
+  "mailbox": "INBOX"
+}
