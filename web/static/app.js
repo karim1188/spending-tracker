@@ -42,8 +42,7 @@ const habitFrequency = document.getElementById("habit-frequency");
 const habitCategory = document.getElementById("habit-category");
 const navDashboard = document.getElementById("nav-dashboard");
 const viewDashboard = document.getElementById("view-dashboard");
-const dashYear = document.getElementById("dash-year");
-const dashMonth = document.getElementById("dash-month");
+const dashTitle = document.getElementById("dash-title");
 const dashBank = document.getElementById("dash-bank");
 const dashIncome = document.getElementById("dash-income");
 const dashIncomeSub = document.getElementById("dash-income-sub");
@@ -54,6 +53,7 @@ const dashNetSub = document.getElementById("dash-net-sub");
 const dashBalance = document.getElementById("dash-balance");
 const dashBalanceSub = document.getElementById("dash-balance-sub");
 const dashFlow = document.getElementById("dash-flow");
+const dashFlowSub = document.getElementById("dash-flow-sub");
 const dashDonut = document.getElementById("dash-donut");
 const dashIncomeMix = document.getElementById("dash-income-mix");
 const dashMonthDays = document.getElementById("dash-month-days");
@@ -310,7 +310,6 @@ async function loadFilters() {
   fillSelect(filterType, filterCatalog.types || [], filterType.value, "All");
   fillSelect(ruleCategory, filterCatalog.all_categories || [], ruleCategory.value, "Choose category");
   fillSelect(habitCategory, filterCatalog.all_categories || [], habitCategory.value, "Choose category");
-  fillSelect(dashYear, filterCatalog.years || [], dashYear.value, "All years");
   fillSelect(dashBank, filterCatalog.banks || [], dashBank.value, "All banks");
 }
 
@@ -432,16 +431,17 @@ async function showDashboard() {
   viewDashboard.hidden = false;
   await loadFilters();
   const params = new URLSearchParams();
-  if (dashYear.value) params.set("year", dashYear.value);
-  if (dashMonth.value) params.set("month", dashMonth.value);
   if (dashBank.value) params.set("bank", dashBank.value);
   const response = await fetch(`/api/dashboard?${params.toString()}`);
   const data = await response.json();
+  const monthSeries = data.month_days || {};
+  const dailyBudget = monthSeries.daily_budget;
+  if (dashTitle) {
+    dashTitle.textContent = data.scope_label || monthSeries.label || "This month";
+  }
   dashIncome.textContent = sar(data.income);
   dashIncomeSub.textContent = `salary ${sar(data.salary)} · transfers in ${sar(data.transfers_in)}`;
   dashSpend.textContent = sar(data.spending);
-  const monthSeries = data.month_days || {};
-  const dailyBudget = monthSeries.daily_budget;
   if (dailyBudget) {
     const roll = Number(dailyBudget.rollover_in) || 0;
     const left = Number(dailyBudget.daily_remaining) || 0;
@@ -469,6 +469,11 @@ async function showDashboard() {
       : "from the latest bank message";
   }
   renderColumnChart(dashFlow, data.by_month || []);
+  if (dashFlowSub) {
+    dashFlowSub.textContent = dashBank.value
+      ? `Last 12 months · ${dashBank.value}`
+      : "Last 12 months · all banks";
+  }
   if (dashMonthDaysTitle) {
     dashMonthDaysTitle.textContent = `${monthSeries.label || "This month"} · day by day`;
   }
@@ -564,7 +569,7 @@ txnBody.addEventListener("click", (event) => {
   });
 });
 
-[dashYear, dashMonth, dashBank].forEach((el) => {
+[dashBank].forEach((el) => {
   el.addEventListener("change", () => {
     const hash = location.hash || "#/";
     if (hash === "#/" || hash === "#" || hash === "#/dashboard") showDashboard();

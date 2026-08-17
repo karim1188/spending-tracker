@@ -523,13 +523,17 @@ class SpendingDatabase:
         month: str | None = None,
         bank: str | None = None,
         timezone_name: str = "Asia/Riyadh",
+        now: datetime | None = None,
     ) -> dict:
-        """Dashboard totals. Salary is attributed to its pay month (±5 days around the 1st)."""
+        """Dashboard totals for the scoped month; income-vs-spending chart uses rolling 12 months."""
         from zoneinfo import ZoneInfo
 
         from collector.salary_period import pay_month_for_salary
 
         tz = ZoneInfo(timezone_name)
+        stamp = now.astimezone(tz) if now else datetime.now(tz)
+        scope_year = int(year) if year else stamp.year
+        scope_month = int(month) if month else stamp.month
         bank_extra = ""
         bank_params: list = []
         if bank:
@@ -553,9 +557,7 @@ class SpendingDatabase:
             bank_params,
         ).fetchall()
 
-        filter_year = int(year) if year else None
-        filter_month = int(month) if month else None
-        periods = self._dashboard_periods(year)
+        periods = self._dashboard_periods(None)
         period_set = set(periods)
         month_income = {p: 0.0 for p in periods}
         month_spend = {p: 0.0 for p in periods}
@@ -579,39 +581,35 @@ class SpendingDatabase:
             if ttype == "salary":
                 pay_y, pay_m = pay_month_for_salary(local_day)
                 period = f"{pay_y:04d}-{pay_m:02d}"
-                if filter_year is not None and pay_y != filter_year:
-                    continue
-                if filter_month is not None and pay_m != filter_month:
-                    continue
-                salary += amount
-                txn_count += 1
                 if period in period_set:
                     month_income[period] += amount
+                if pay_y == scope_year and pay_m == scope_month:
+                    salary += amount
+                    txn_count += 1
             else:
                 cal_y, cal_m = local_day.year, local_day.month
                 period = f"{cal_y:04d}-{cal_m:02d}"
-                if filter_year is not None and cal_y != filter_year:
-                    continue
-                if filter_month is not None and cal_m != filter_month:
+                if period in period_set:
+                    if ttype == "bank_transfer_in":
+                        month_income[period] += amount
+                    elif ttype not in NON_SPENDING_TYPES:
+                        month_spend[period] += amount
+                if cal_y != scope_year or cal_m != scope_month:
                     continue
                 txn_count += 1
                 if ttype == "bank_transfer_in":
                     transfers_in += amount
-                    if period in period_set:
-                        month_income[period] += amount
                 elif ttype not in NON_SPENDING_TYPES:
                     spending += amount
                     label = row["category"] or "Other"
                     category_totals[label] = category_totals.get(label, 0.0) + amount
-                    if period in period_set:
-                        month_spend[period] += amount
 
             if row["balance"] is not None:
-                stamp = str(row["stamp"])
-                if latest_stamp is None or stamp > latest_stamp:
-                    latest_stamp = stamp
+                stamp_row = str(row["stamp"])
+                if latest_stamp is None or stamp_row > latest_stamp:
+                    latest_stamp = stamp_row
                     latest_balance = float(row["balance"])
-                    latest_balance_at = stamp
+                    latest_balance_at = stamp_row
                     latest_balance_bank = row["bank"]
 
         income = salary + transfers_in
@@ -643,8 +641,14 @@ class SpendingDatabase:
             "latest_balance_bank": latest_balance_bank,
             "by_category": by_category,
             "by_month": by_month,
+            "scope_period": f"{scope_year:04d}-{scope_month:02d}",
+            "scope_label": f"{MONTH_LABELS[scope_month - 1]} {scope_year}",
             "month_days": self.month_day_series(
-                year=year, month=month, bank=bank, timezone_name=timezone_name
+                year=str(scope_year),
+                month=f"{scope_month:02d}",
+                bank=bank,
+                timezone_name=timezone_name,
+                now=stamp,
             ),
             "recurring_monthly": rec["monthly_total"],
         }

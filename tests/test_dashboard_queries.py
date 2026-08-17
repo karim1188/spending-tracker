@@ -276,8 +276,11 @@ def test_manual_daily_habit_does_not_tag_transactions(tmp_path):
 
 
 def test_dashboard_income_versus_spending(tmp_path):
+    from zoneinfo import ZoneInfo
+
     db = SpendingDatabase(tmp_path / "spending.db")
     when = datetime(2026, 8, 2, 9, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 10, 12, tzinfo=ZoneInfo("Asia/Riyadh"))
     db.insert_transaction(
         Transaction(
             source_message_guid="sal-d",
@@ -315,19 +318,20 @@ def test_dashboard_income_versus_spending(tmp_path):
             transaction_time=when,
         )
     )
-    dash = db.dashboard()
+    dash = db.dashboard(now=now)
     assert dash["income"] == 12400
     assert dash["salary"] == 12000
     assert dash["transfers_in"] == 400
     assert dash["spending"] == 250
     assert dash["net"] == 12150
     assert dash["latest_balance"] == 18500
-    year_dash = db.dashboard(year="2026")
+    assert dash["scope_period"] == "2026-08"
+    year_dash = db.dashboard(year="2026", now=now)
     august = next(row for row in year_dash["by_month"] if row["period"] == "2026-08")
     assert august["income"] == 12400
     assert august["spending"] == 250
-    assert db.dashboard(year="2025")["income"] == 0
-    series = db.month_day_series(year="2026", month="08", now=datetime(2026, 8, 10, 12, tzinfo=ZoneInfo("Asia/Riyadh")))
+    assert db.dashboard(year="2025", now=now)["income"] == 0
+    series = db.month_day_series(year="2026", month="08", now=now)
     assert series["period"] == "2026-08"
     assert series["through_day"] == 10
     assert series["days"][0]["day"] == 1
@@ -378,9 +382,9 @@ def test_salary_pay_window_across_month_boundary(tmp_path):
         now=datetime(2026, 7, 31, 12, tzinfo=ZoneInfo("Asia/Riyadh")),
     )
     assert july["salary"] == 0
-    dash_aug = db.dashboard(year="2026", month="08")
+    dash_aug = db.dashboard(year="2026", month="08", now=now)
     assert dash_aug["salary"] == 11500
-    dash_year = db.dashboard(year="2026")
+    dash_year = db.dashboard(year="2026", now=now)
     august = next(row for row in dash_year["by_month"] if row["period"] == "2026-08")
     july_row = next(row for row in dash_year["by_month"] if row["period"] == "2026-07")
     assert august["income"] == 11500

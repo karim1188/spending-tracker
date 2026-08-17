@@ -55,28 +55,8 @@
 
   <main id="view-dashboard" hidden>
     <section class="dash-toolbar">
-      <h2 class="dash-title">Dashboard</h2>
+      <h2 class="dash-title" id="dash-title">This month</h2>
       <div class="filters dash-filters">
-        <label>Year
-          <select id="dash-year"><option value="">All years</option></select>
-        </label>
-        <label>Month
-          <select id="dash-month">
-            <option value="">All months</option>
-            <option value="01">January</option>
-            <option value="02">February</option>
-            <option value="03">March</option>
-            <option value="04">April</option>
-            <option value="05">May</option>
-            <option value="06">June</option>
-            <option value="07">July</option>
-            <option value="08">August</option>
-            <option value="09">September</option>
-            <option value="10">October</option>
-            <option value="11">November</option>
-            <option value="12">December</option>
-          </select>
-        </label>
         <label>Bank
           <select id="dash-bank"><option value="">All banks</option></select>
         </label>
@@ -117,6 +97,7 @@
         <h2>Income vs spending</h2>
         <p class="chart-legend"><span class="swatch in"></span> In <span class="swatch out"></span> Spending</p>
       </header>
+      <p class="chart-sub" id="dash-flow-sub">Last 12 months</p>
       <div id="dash-flow" class="chart-wrap"></div>
     </section>
     <section class="split">
