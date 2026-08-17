@@ -70,6 +70,7 @@ def main() -> int:
         if getattr(exc, "errno", None) == 48 or "Address already in use" in str(exc):
             print(f"[ERROR] Port {args.port} is already in use.")
             print("Stop the other ledger first:")
+            print("  bash scripts/stop_app.sh")
             print(f"  lsof -nP -iTCP:{args.port} -sTCP:LISTEN")
             print("Or wait for deploy to finish, then check logs/deploy.log")
             return 1
