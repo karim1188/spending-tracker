@@ -3,5 +3,5 @@
   "branch": "main",
   "port": 8787,
   "deploy_url": "http://192.168.100.59:8787/api/deploy",
-  "start_command": ["python3", "scripts/start_app.py", "--no-browser"]
+  "start_command": [".venv/bin/python3", "scripts/start_app.py", "--no-browser"]
 }

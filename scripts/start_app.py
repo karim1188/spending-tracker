@@ -64,14 +64,24 @@ def main() -> int:
     host = "127.0.0.1" if args.localhost else args.host
 
     setup_logging()
-    httpd = serve(host, args.port)
+    try:
+        httpd = serve(host, args.port)
+    except OSError as exc:
+        if getattr(exc, "errno", None) == 48 or "Address already in use" in str(exc):
+            print(f"[ERROR] Port {args.port} is already in use.")
+            print("Stop the other ledger first:")
+            print(f"  lsof -nP -iTCP:{args.port} -sTCP:LISTEN")
+            print("Or wait for deploy to finish, then check logs/deploy.log")
+            return 1
+        raise
 
     def _on_shutdown(reason: str) -> None:
         print(f"[WARN] Shutting down: {reason}")
         try:
             httpd.shutdown()
+            httpd.server_close()
         finally:
-            time.sleep(0.8)
+            time.sleep(0.3)
             os._exit(0)
 
     register_shutdown(_on_shutdown)

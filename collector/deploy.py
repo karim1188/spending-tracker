@@ -122,7 +122,7 @@ def prepare_deploy_restart() -> dict:
     }
 
 
-def schedule_deploy_shutdown(reason: str, delay: float = 0.75) -> None:
+def schedule_deploy_shutdown(reason: str, delay: float = 1.5) -> None:
     """Shut down the app after the HTTP response has time to flush."""
     from notify.shutdown import request_shutdown
 
