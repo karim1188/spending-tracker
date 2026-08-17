@@ -1,0 +1,6 @@
+{
+  "token": "change-me-to-a-long-random-secret",
+  "branch": "main",
+  "port": 8787,
+  "start_command": ["python3", "scripts/start_app.py", "--no-browser"]
+}

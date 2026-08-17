@@ -27,9 +27,19 @@ def main() -> int:
             from datetime import datetime
             from zoneinfo import ZoneInfo
 
+            from collector.daily_budget import enrich_month_days
+
             day = datetime.now(ZoneInfo(settings.timezone)).date().isoformat()
+            now = datetime.now(ZoneInfo(settings.timezone))
             report = db.day_spending_report(day)
-            send_telegram(settings, format_day_report(report, settings.daily_limit_sar))
+            series = enrich_month_days(
+                db.month_day_series(timezone_name=settings.timezone, now=now),
+                settings.daily_limit_sar,
+            )
+            send_telegram(
+                settings,
+                format_day_report(report, settings.daily_limit_sar, budget=series.get("daily_budget")),
+            )
             print("Sent today's spending.")
             return 0
         sent = tick(db, settings=settings)

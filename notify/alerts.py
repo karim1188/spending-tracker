@@ -5,6 +5,7 @@ from collections.abc import Callable
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from collector.daily_budget import enrich_month_days
 from database.db import SpendingDatabase
 from notify.settings import TelegramSettings, load_telegram_settings
 from notify.shutdown import request_shutdown
@@ -27,13 +28,20 @@ NEAR_LIMIT_LINES = (
 )
 
 
-def format_day_report(report: dict, limit: float) -> str:
+def format_day_report(report: dict, limit: float, budget: dict | None = None) -> str:
     title = str(report.get("day") or report.get("title") or "today")
+    allowance = float((budget or {}).get("daily_allowance") or limit)
+    rollover = float((budget or {}).get("rollover_in") or 0)
     body = [
         kv("Total", format_sar(report["total_amount"])),
         kv("Buys", str(report.get("txn_count") or 0)),
-        *budget_lines(float(report["total_amount"]), limit),
     ]
+    if rollover > 0:
+        body.append(kv("Rollover", format_sar(rollover)))
+    body.append(kv("Allowance", format_sar(allowance)))
+    body.extend(budget_lines(float(report["total_amount"]), allowance))
+    if budget and budget.get("remaining_mtd") is not None:
+        body.append(kv("Left month", format_sar(float(budget["remaining_mtd"]))))
     merchants = bullet_rows(report.get("merchants") or [])
     sections = [body]
     if merchants:
@@ -42,7 +50,7 @@ def format_day_report(report: dict, limit: float) -> str:
         "Day report",
         subtitle=title,
         sections=sections,
-        footer="Reply menu for week · month · year · server",
+        footer="Unused daily budget rolls over · reply menu",
     )
 
 
@@ -59,7 +67,12 @@ def format_period_report(report: dict, limit: float | None = None) -> str:
         kv("Buys", str(report.get("txn_count") or 0)),
     ]
     if report.get("period") == "day" and limit is not None:
-        body.extend(budget_lines(float(report["total_amount"]), limit))
+        allowance = float(report.get("daily_allowance") or limit)
+        rollover = float(report.get("rollover_in") or 0)
+        if rollover > 0:
+            body.append(kv("Rollover", format_sar(rollover)))
+        body.append(kv("Allowance", format_sar(allowance)))
+        body.extend(budget_lines(float(report["total_amount"]), allowance))
     sections: list[list[str]] = [body]
     categories = bullet_rows(report.get("categories") or [])
     merchants = bullet_rows(report.get("merchants") or [])
@@ -75,15 +88,19 @@ def format_period_report(report: dict, limit: float | None = None) -> str:
     )
 
 
-def format_warning(report: dict, limit: float) -> str:
-    over = float(report["total_amount"]) - limit
+def format_warning(report: dict, limit: float, budget: dict | None = None) -> str:
+    allowance = float((budget or {}).get("daily_allowance") or limit)
+    over = float(report["total_amount"]) - allowance
     body = [
-        "Daily limit reached.",
+        "Daily allowance reached.",
         kv("Today", format_sar(report["total_amount"])),
-        kv("Limit", format_sar(limit)),
+        kv("Allowance", format_sar(allowance)),
         kv("Over", format_sar(max(0.0, over))),
-        *budget_lines(float(report["total_amount"]), limit),
+        *budget_lines(float(report["total_amount"]), allowance),
     ]
+    rollover = float((budget or {}).get("rollover_in") or 0)
+    if rollover > 0:
+        body.insert(2, kv("Rollover", format_sar(rollover)))
     merchants = bullet_rows(report.get("merchants") or [])
     sections = [body]
     if merchants:
@@ -93,7 +110,7 @@ def format_warning(report: dict, limit: float) -> str:
         subtitle=str(report.get("day") or report.get("title") or "today"),
         sections=sections,
         badge="over limit",
-        footer="Ease up — tomorrow resets the daily budget",
+        footer="Ease up — unused budget rolls over when you stay under",
     )
 
 
@@ -102,17 +119,22 @@ def format_near_limit(
     limit: float,
     cushion: float,
     line: str | None = None,
+    budget: dict | None = None,
 ) -> str:
-    remaining = max(0.0, limit - report["total_amount"])
+    allowance = float((budget or {}).get("daily_allowance") or limit)
+    remaining = max(0.0, allowance - report["total_amount"])
     pick = line if line is not None else random.choice(NEAR_LIMIT_LINES)
     body = [
         pick,
         "",
         kv("Today", format_sar(report["total_amount"])),
         kv("Left", format_sar(remaining)),
-        kv("Warn @", f"under {format_sar(cushion)} of {format_sar(limit)}"),
-        *budget_lines(float(report["total_amount"]), limit),
+        kv("Warn @", f"under {format_sar(cushion)} of {format_sar(allowance)}"),
+        *budget_lines(float(report["total_amount"]), allowance),
     ]
+    rollover = float((budget or {}).get("rollover_in") or 0)
+    if rollover > 0:
+        body.insert(2, kv("Rollover", format_sar(rollover)))
     return card(
         "Near limit",
         subtitle=str(report.get("day") or "today"),
@@ -138,14 +160,21 @@ def format_monthly1_report(series: dict, monthly_limit: float) -> str:
     win_end = series.get("salary_window_end")
     if win_start and win_end:
         body.append(kv("Salary window", f"{win_start} → {win_end}"))
+    budget = series.get("daily_budget")
+    if budget:
+        body.append(kv("Today left", format_sar(float(budget["daily_remaining"]))))
+        if float(budget.get("rollover_in") or 0) > 0:
+            body.append(kv("Rollover in", format_sar(float(budget["rollover_in"]))))
     day_lines: list[str] = []
     for row in series.get("days") or []:
         if not row["income"] and not row["spending"]:
             continue
+        income_bit = f"in {format_sar(row['income'])}  " if row["income"] else ""
         day_lines.append(
-            f"D{row['day']:02d}  in {format_sar(row['income'])}  "
+            f"D{row['day']:02d}  {income_bit}"
             f"out {format_sar(row['spending'])}  "
-            f"cum {format_sar(row['cumulative_spending'])}"
+            f"left {format_sar(row.get('daily_remaining', 0))}  "
+            f"roll {format_sar(row.get('rollover_out', 0))}"
         )
     if not day_lines:
         day_lines = ["No income or spending yet this month."]
@@ -157,7 +186,7 @@ def format_monthly1_report(series: dict, monthly_limit: float) -> str:
         subtitle=str(series.get("label") or series.get("period") or "This month"),
         sections=[body, section("Day by day", day_lines)],
         badge="month to date",
-        footer=f"Monthly warn at {format_sar(monthly_limit)} · salary ±5 days · reply menu",
+        footer=f"Monthly warn at {format_sar(monthly_limit)} · daily {format_sar(float(series.get('daily_limit_sar') or 200))} rolls over",
     )
 
 
@@ -282,6 +311,20 @@ def send_period_report(
         timezone_name=settings.timezone,
         now=now,
     )
+    budget = None
+    if period == "day":
+        series = enrich_month_days(
+            db.month_day_series(timezone_name=settings.timezone, now=now),
+            settings.daily_limit_sar,
+        )
+        budget = series.get("daily_budget")
+        if budget:
+            report = {
+                **report,
+                "rollover_in": budget["rollover_in"],
+                "daily_allowance": budget["daily_allowance"],
+                "daily_remaining": budget["daily_remaining"],
+            }
     text = format_period_report(report, settings.daily_limit_sar if period == "day" else None)
     send(text)
     return {"ok": True, "period": period, "title": report["title"], "total_amount": report["total_amount"]}
@@ -302,30 +345,35 @@ def tick(
     stamp = now.astimezone(tz) if now else datetime.now(tz)
     day = stamp.date().isoformat()
     report = db.day_spending_report(day)
+    series = enrich_month_days(
+        db.month_day_series(timezone_name=settings.timezone, now=stamp),
+        settings.daily_limit_sar,
+    )
+    budget = series.get("daily_budget") or {}
     sent: list[str] = []
     spent = report["total_amount"]
-    limit = settings.daily_limit_sar
+    base_limit = settings.daily_limit_sar
+    allowance = float(budget.get("daily_allowance") or base_limit)
     cushion = settings.near_limit_sar
-    near_floor = max(0.0, limit - cushion)
-    if spent >= limit and db.notify_value(WARNING_KEY) != day:
-        send(format_warning(report, limit))
+    near_floor = max(0.0, allowance - cushion)
+    if spent >= allowance and db.notify_value(WARNING_KEY) != day:
+        send(format_warning(report, base_limit, budget=budget))
         db.set_notify_value(WARNING_KEY, day)
         sent.append("warning")
     elif (
         spent >= near_floor
-        and spent < limit
+        and spent < allowance
         and db.notify_value(NEAR_LIMIT_KEY) != day
     ):
-        send(format_near_limit(report, limit, cushion))
+        send(format_near_limit(report, base_limit, cushion, budget=budget))
         db.set_notify_value(NEAR_LIMIT_KEY, day)
         sent.append("near_limit")
     digest_due = (stamp.hour, stamp.minute) >= (settings.daily_hour, settings.daily_minute)
     if digest_due and db.notify_value(DIGEST_KEY) != day:
-        send(format_day_report(report, limit))
+        send(format_day_report(report, base_limit, budget=budget))
         db.set_notify_value(DIGEST_KEY, day)
         sent.append("digest")
     month_key = stamp.strftime("%Y-%m")
-    series = db.month_day_series(timezone_name=settings.timezone, now=stamp)
     monthly_limit = settings.monthly_limit_sar
     if (
         float(series["spending"]) >= monthly_limit

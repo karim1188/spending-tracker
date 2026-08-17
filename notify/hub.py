@@ -224,15 +224,35 @@ class TelegramHub:
             return format_health_report(snap)
 
         if action == "monthly1":
+            from collector.daily_budget import enrich_month_days
+
             with SpendingDatabase() as db:
-                series = db.month_day_series(timezone_name=self.settings.timezone)
+                series = enrich_month_days(
+                    db.month_day_series(timezone_name=self.settings.timezone),
+                    self.settings.daily_limit_sar,
+                )
             return format_monthly1_report(series, self.settings.monthly_limit_sar)
 
         if action not in {"day", "week", "month", "year"}:
             return menu_message()
 
+        from collector.daily_budget import enrich_month_days
+
         with SpendingDatabase() as db:
             report = db.period_spending_report(action, timezone_name=self.settings.timezone)
+            if action == "day":
+                series = enrich_month_days(
+                    db.month_day_series(timezone_name=self.settings.timezone),
+                    self.settings.daily_limit_sar,
+                )
+                budget = series.get("daily_budget")
+                if budget:
+                    report = {
+                        **report,
+                        "rollover_in": budget["rollover_in"],
+                        "daily_allowance": budget["daily_allowance"],
+                        "daily_remaining": budget["daily_remaining"],
+                    }
         limit = self.settings.daily_limit_sar if action == "day" else None
         return format_period_report(report, limit)
 

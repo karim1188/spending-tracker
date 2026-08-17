@@ -49,17 +49,32 @@ def _spend(db: SpendingDatabase, guid: str, amount: float, when: datetime | None
     )
 
 
-def test_warning_sends_once_at_200(tmp_path):
+def test_warning_sends_once_at_daily_allowance(tmp_path):
     db = SpendingDatabase(tmp_path / "spending.db")
     sent: list[str] = []
     settings = _settings()
-    noon = datetime(2026, 8, 16, 12, 0, tzinfo=RIYADH)
-    _spend(db, "a", 100)
+    noon = datetime(2026, 8, 1, 12, 0, tzinfo=RIYADH)
+    when = datetime(2026, 8, 1, 9, 0, tzinfo=ZoneInfo("UTC"))
+    _spend(db, "a", 100, when=when)
     assert tick(db, settings=settings, send=sent.append, now=noon) == []
-    _spend(db, "b", 110)
+    _spend(db, "b", 110, when=when)
     assert tick(db, settings=settings, send=sent.append, now=noon) == ["warning"]
-    assert "200" in sent[0]
+    assert "210.00" in sent[0]
     assert tick(db, settings=settings, send=sent.append, now=noon) == []
+    db.close()
+
+
+def test_warning_uses_rollover_on_later_days(tmp_path):
+    db = SpendingDatabase(tmp_path / "spending.db")
+    sent: list[str] = []
+    settings = _settings()
+    _spend(db, "d1", 150, when=datetime(2026, 8, 1, 9, 0, tzinfo=ZoneInfo("UTC")))
+    noon = datetime(2026, 8, 2, 12, 0, tzinfo=RIYADH)
+    when = datetime(2026, 8, 2, 9, 0, tzinfo=ZoneInfo("UTC"))
+    _spend(db, "d2a", 140, when=when)
+    assert tick(db, settings=settings, send=sent.append, now=noon) == []
+    _spend(db, "d2b", 120, when=when)
+    assert tick(db, settings=settings, send=sent.append, now=noon) == ["warning"]
     db.close()
 
 
@@ -67,15 +82,16 @@ def test_near_limit_sends_once_within_50(tmp_path):
     db = SpendingDatabase(tmp_path / "spending.db")
     sent: list[str] = []
     settings = _settings()
-    noon = datetime(2026, 8, 16, 12, 0, tzinfo=RIYADH)
-    _spend(db, "near-a", 140)
+    noon = datetime(2026, 8, 1, 12, 0, tzinfo=RIYADH)
+    when = datetime(2026, 8, 1, 9, 0, tzinfo=ZoneInfo("UTC"))
+    _spend(db, "near-a", 140, when=when)
     assert tick(db, settings=settings, send=sent.append, now=noon) == []
-    _spend(db, "near-b", 20)
+    _spend(db, "near-b", 20, when=when)
     assert tick(db, settings=settings, send=sent.append, now=noon) == ["near_limit"]
     assert any(line in sent[0] for line in NEAR_LIMIT_LINES)
     assert "40.00" in sent[0]
     assert tick(db, settings=settings, send=sent.append, now=noon) == []
-    _spend(db, "near-c", 50)
+    _spend(db, "near-c", 50, when=when)
     assert tick(db, settings=settings, send=sent.append, now=noon) == ["warning"]
     db.close()
 
@@ -144,24 +160,29 @@ def test_monthly_spending_warning_at_6000(tmp_path):
 
 
 def test_format_monthly1_report_includes_day_rows():
+    from collector.daily_budget import enrich_month_days
     from notify.alerts import format_monthly1_report
 
-    series = {
-        "label": "Aug 2026",
-        "through_day": 3,
-        "days_in_month": 31,
-        "income": 1000,
-        "spending": 250,
-        "days": [
-            {"day": 1, "income": 1000, "spending": 0, "cumulative_spending": 0},
-            {"day": 2, "income": 0, "spending": 100, "cumulative_spending": 100},
-            {"day": 3, "income": 0, "spending": 150, "cumulative_spending": 250},
-        ],
-    }
+    series = enrich_month_days(
+        {
+            "label": "Aug 2026",
+            "through_day": 3,
+            "days_in_month": 31,
+            "income": 1000,
+            "spending": 250,
+            "days": [
+                {"day": 1, "income": 1000, "spending": 0, "cumulative_spending": 0},
+                {"day": 2, "income": 0, "spending": 100, "cumulative_spending": 100},
+                {"day": 3, "income": 0, "spending": 150, "cumulative_spending": 250},
+            ],
+        },
+        200,
+    )
     text = format_monthly1_report(series, 6000)
     assert "MONTHLY1" in text
     assert "D02" in text
     assert "250.00" in text
+    assert "roll" in text.lower()
     assert "6,000" in text or "6000" in text
 
 

@@ -412,9 +412,21 @@ async function showDashboard() {
   dashIncome.textContent = sar(data.income);
   dashIncomeSub.textContent = `salary ${sar(data.salary)} · transfers in ${sar(data.transfers_in)}`;
   dashSpend.textContent = sar(data.spending);
-  dashSpendSub.textContent = data.recurring_monthly
-    ? `includes ${sar(data.recurring_monthly)} marked as monthly bills`
-    : "outgoing transactions";
+  const monthSeries = data.month_days || {};
+  const dailyBudget = monthSeries.daily_budget;
+  if (dailyBudget) {
+    const roll = Number(dailyBudget.rollover_in) || 0;
+    const left = Number(dailyBudget.daily_remaining) || 0;
+    const allowance = Number(dailyBudget.daily_allowance) || Number(data.daily_limit_sar) || 200;
+    const spentToday = Number(dailyBudget.spent_today) || 0;
+    dashSpendSub.textContent = roll > 0
+      ? `today ${sar(spentToday)} of ${sar(allowance)} · ${sar(left)} left · ${sar(roll)} rolled over`
+      : `today ${sar(spentToday)} of ${sar(allowance)} · ${sar(left)} left today`;
+  } else {
+    dashSpendSub.textContent = data.recurring_monthly
+      ? `includes ${sar(data.recurring_monthly)} marked as monthly bills`
+      : "outgoing transactions";
+  }
   dashNet.textContent = sar(data.net);
   dashNet.classList.toggle("net-neg", data.net < 0);
   dashNet.classList.toggle("net-pos", data.net >= 0);
@@ -429,15 +441,18 @@ async function showDashboard() {
       : "from the latest bank message";
   }
   renderColumnChart(dashFlow, data.by_month || []);
-  const monthSeries = data.month_days || {};
   if (dashMonthDaysTitle) {
     dashMonthDaysTitle.textContent = `${monthSeries.label || "This month"} · day by day`;
   }
   if (dashMonthDaysSub) {
     const spent = Number(monthSeries.spending) || 0;
-    const limit = Number(data.monthly_limit_sar) || 6000;
-    dashMonthDaysSub.textContent =
-      `From day 1 through day ${monthSeries.through_day || "—"} · spent ${sar(spent)} of ${sar(limit)} monthly limit`;
+    const monthlyLimit = Number(data.monthly_limit_sar) || 6000;
+    const dailyLimit = Number(data.daily_limit_sar) || 200;
+    let sub = `From day 1 through day ${monthSeries.through_day || "—"} · spent ${sar(spent)} of ${sar(monthlyLimit)} monthly limit · daily ${sar(dailyLimit)} rolls over`;
+    if (dailyBudget) {
+      sub += ` · today ${sar(Number(dailyBudget.daily_remaining) || 0)} left`;
+    }
+    dashMonthDaysSub.textContent = sub;
   }
   if (dashMonthDays) {
     renderMonthDayChart(dashMonthDays, monthSeries, data.monthly_limit_sar);

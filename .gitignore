@@ -42,6 +42,7 @@ credentials*
 tokens.json
 config/telegram.json
 config/gmail.json
+config/deploy.json
 *.session
 session_*
 

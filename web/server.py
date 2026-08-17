@@ -141,6 +141,7 @@ class LedgerHandler(BaseHTTPRequestHandler):
             self._send_json({"transaction": row_to_public(row, include_raw=True)})
             return
         if parsed.path == "/api/dashboard":
+            from collector.daily_budget import enrich_month_days
             from notify.settings import load_telegram_settings
 
             with SpendingDatabase() as db:
@@ -153,6 +154,10 @@ class LedgerHandler(BaseHTTPRequestHandler):
             payload["monthly_limit_sar"] = (
                 float(settings.monthly_limit_sar) if settings else 6000.0
             )
+            daily_limit = float(settings.daily_limit_sar) if settings else 200.0
+            payload["daily_limit_sar"] = daily_limit
+            if payload.get("month_days"):
+                payload["month_days"] = enrich_month_days(payload["month_days"], daily_limit)
             self._send_json(payload)
             return
         if parsed.path == "/api/recurring":
@@ -287,6 +292,9 @@ class LedgerHandler(BaseHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001 — surface setup errors to UI
                 self._send_json({"error": str(exc)}, 503)
             return
+        if parsed.path == "/api/deploy":
+            self._deploy()
+            return
         recurring = RECURRING_TXN_PATH.match(parsed.path)
         if recurring:
             with SpendingDatabase() as db:
@@ -337,6 +345,30 @@ class LedgerHandler(BaseHTTPRequestHandler):
         if not length:
             return {}
         return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    def _header_map(self) -> dict[str, str]:
+        return {key: value for key, value in self.headers.items()}
+
+    def _deploy(self) -> None:
+        from collector.deploy import (
+            DeployConfigError,
+            extract_deploy_token,
+            request_deploy_restart,
+            token_is_valid,
+        )
+
+        body = self._read_json()
+        token = extract_deploy_token(self._header_map(), body)
+        try:
+            if not token_is_valid(token):
+                self._send_json({"ok": False, "error": "invalid or missing deploy token"}, 401)
+                return
+            result = request_deploy_restart("deploy API: git pull restart")
+            self._send_json(result)
+        except DeployConfigError as exc:
+            self._send_json({"ok": False, "error": str(exc)}, 503)
+        except Exception as exc:  # noqa: BLE001
+            self._send_json({"ok": False, "error": str(exc)}, 500)
 
     def _sync(self) -> None:
         if not _sync_lock.acquire(blocking=False):
