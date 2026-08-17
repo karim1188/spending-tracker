@@ -164,36 +164,48 @@ function renderColumnChart(target, rows) {
   </svg>`;
 }
 
-function renderMonthDayChart(target, series, monthlyLimit) {
+function renderMonthDayChart(target, series, monthlyLimit, dailyLimit) {
   const days = (series && series.days) || [];
   if (!days.length) {
     target.innerHTML = '<p class="empty">No days in this month yet.</p>';
     return;
   }
   const width = 720;
-  const height = 260;
+  const height = 280;
   const left = 36;
   const right = 12;
   const top = 16;
   const bottom = 28;
   const innerW = width - left - right;
   const innerH = height - top - bottom;
-  const limit = Number(monthlyLimit) || 6000;
+  const monthCap = Number(monthlyLimit) || 6000;
+  const dayCap = Number(dailyLimit) || Number(series.daily_limit_sar) || 200;
+  const hasBudget = days.some((row) => row.allowed_mtd != null || row.daily_allowance != null);
   const maxCum = Math.max(
     ...days.map((row) => Number(row.cumulative_spending) || 0),
     ...days.map((row) => Number(row.cumulative_income) || 0),
-    limit,
+    ...days.map((row) => Number(row.allowed_mtd) || 0),
+    monthCap,
+    dayCap,
     1
   );
   const step = innerW / Math.max(days.length - 1, 1);
-  const yOf = (value) => top + innerH - ((Number(value) || 0) / maxCum) * innerH;
+  const yOf = (value) => top + innerH - ((Math.max(Number(value) || 0, 0)) / maxCum) * innerH;
   const spendPoints = days
     .map((row, index) => `${left + index * step},${yOf(row.cumulative_spending)}`)
     .join(" ");
   const incomePoints = days
     .map((row, index) => `${left + index * step},${yOf(row.cumulative_income)}`)
     .join(" ");
-  const limitY = yOf(limit);
+  const budgetPoints = hasBudget
+    ? days.map((row, index) => `${left + index * step},${yOf(row.allowed_mtd ?? row.day * dayCap)}`).join(" ")
+    : "";
+  const remainingPoints = hasBudget
+    ? days
+        .map((row, index) => `${left + index * step},${yOf(Math.max(0, Number(row.remaining_mtd) || 0))}`)
+        .join(" ")
+    : "";
+  const monthLimitY = yOf(monthCap);
   const labelEvery = days.length > 20 ? 5 : days.length > 12 ? 2 : 1;
   const labels = days
     .map((row, index) => {
@@ -204,21 +216,37 @@ function renderMonthDayChart(target, series, monthlyLimit) {
   const dailyBars = days
     .map((row, index) => {
       const x = left + index * step;
-      const dayMax = Math.max(Number(row.income) || 0, Number(row.spending) || 0, 1);
-      // small daily markers as thin bars scaled against maxCum for context
-      const inH = ((Number(row.income) || 0) / maxCum) * innerH * 0.35;
-      const outH = ((Number(row.spending) || 0) / maxCum) * innerH * 0.35;
+      const allowance = Number(row.daily_allowance) || dayCap;
+      const remaining = Math.max(0, Number(row.daily_remaining) || 0);
+      const spent = Number(row.spending) || 0;
+      const allowH = (allowance / maxCum) * innerH * 0.28;
+      const leftH = (remaining / maxCum) * innerH * 0.28;
+      const outH = (spent / maxCum) * innerH * 0.28;
+      if (!hasBudget) {
+        const inH = ((Number(row.income) || 0) / maxCum) * innerH * 0.35;
+        const outOnly = ((Number(row.spending) || 0) / maxCum) * innerH * 0.35;
+        return `
+          <rect class="col-in" x="${x - 3}" y="${top + innerH - inH}" width="3" height="${inH}" opacity="0.55"></rect>
+          <rect class="col-out" x="${x}" y="${top + innerH - outOnly}" width="3" height="${outH}" opacity="0.7"></rect>
+        `;
+      }
       return `
-        <rect class="col-in" x="${x - 3}" y="${top + innerH - inH}" width="3" height="${inH}" opacity="0.55"></rect>
-        <rect class="col-out" x="${x}" y="${top + innerH - outH}" width="3" height="${outH}" opacity="0.7"></rect>
+        <rect class="col-budget-cap" x="${x - 4}" y="${top + innerH - allowH}" width="2.5" height="${allowH}" opacity="0.45"></rect>
+        <rect class="col-budget-left" x="${x - 1}" y="${top + innerH - leftH}" width="2.5" height="${leftH}" opacity="0.85"></rect>
+        <rect class="col-out" x="${x + 2}" y="${top + innerH - outH}" width="2.5" height="${outH}" opacity="0.75"></rect>
       `;
     })
     .join("");
-  target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Month day by day income and spending">
+  const budgetLine = hasBudget
+    ? `<polyline fill="none" stroke="#3d6b8c" stroke-width="1.8" stroke-dasharray="5 4" points="${budgetPoints}"></polyline>
+       <polyline fill="none" stroke="#5a7a38" stroke-width="2" points="${remainingPoints}"></polyline>`
+    : "";
+  target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Month day by day income, spending, and daily budget">
     <line x1="${left}" y1="${top + innerH}" x2="${width - right}" y2="${top + innerH}" stroke="currentColor" stroke-opacity="0.25"></line>
-    <line x1="${left}" y1="${limitY}" x2="${width - right}" y2="${limitY}" stroke="currentColor" stroke-dasharray="4 4" stroke-opacity="0.55"></line>
-    <text x="${width - right}" y="${limitY - 4}" text-anchor="end">${Math.round(limit)}</text>
+    <line x1="${left}" y1="${monthLimitY}" x2="${width - right}" y2="${monthLimitY}" stroke="currentColor" stroke-dasharray="4 4" stroke-opacity="0.55"></line>
+    <text x="${width - right}" y="${monthLimitY - 4}" text-anchor="end">${Math.round(monthCap)}</text>
     ${dailyBars}
+    ${budgetLine}
     <polyline fill="none" stroke="#4f5d3c" stroke-width="2.2" points="${incomePoints}"></polyline>
     <polyline fill="none" stroke="#c45c26" stroke-width="2.4" points="${spendPoints}"></polyline>
     ${labels}
@@ -455,7 +483,7 @@ async function showDashboard() {
     dashMonthDaysSub.textContent = sub;
   }
   if (dashMonthDays) {
-    renderMonthDayChart(dashMonthDays, monthSeries, data.monthly_limit_sar);
+    renderMonthDayChart(dashMonthDays, monthSeries, data.monthly_limit_sar, data.daily_limit_sar);
   }
   renderDonut(dashDonut, data.by_category || []);
   renderBars(dashIncomeMix, [

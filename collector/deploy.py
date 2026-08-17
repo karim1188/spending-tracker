@@ -20,6 +20,7 @@ class DeploySettings:
     token: str
     branch: str = "main"
     port: int = 8787
+    deploy_url: str = "http://192.168.100.59:8787/api/deploy"
     start_command: tuple[str, ...] = ("python3", "scripts/start_app.py", "--no-browser")
 
     @classmethod
@@ -45,7 +46,15 @@ class DeploySettings:
             start_command = tuple(str(part) for part in cmd)
         else:
             start_command = cls.start_command
-        return cls(token=str(token).strip(), branch=branch, port=port, start_command=start_command)
+        return cls(
+            token=str(token).strip(),
+            branch=branch,
+            port=port,
+            deploy_url=str(
+                os.environ.get("DEPLOY_URL") or data.get("deploy_url") or cls.deploy_url
+            ).strip(),
+            start_command=start_command,
+        )
 
 
 def token_is_valid(provided: str | None, settings: DeploySettings | None = None) -> bool:

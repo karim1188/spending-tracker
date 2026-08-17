@@ -46,3 +46,19 @@ def test_request_deploy_restart(tmp_path, monkeypatch):
     assert result["ok"] is True
     spawn.assert_called_once()
     shutdown.assert_called_once()
+
+
+def test_deploy_settings_loads_deploy_url(tmp_path, monkeypatch):
+    monkeypatch.delenv("DEPLOY_TOKEN", raising=False)
+    cfg_path = tmp_path / "deploy.json"
+    cfg_path.write_text(
+        json.dumps(
+            {
+                "token": "secret",
+                "deploy_url": "http://192.168.100.59:8787/api/deploy",
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = DeploySettings.load(cfg_path)
+    assert settings.deploy_url == "http://192.168.100.59:8787/api/deploy"

@@ -406,9 +406,13 @@ tbody tr:hover { background: rgba(196, 92, 38, 0.08); }
 }
 .swatch.in { background: var(--olive); }
 .swatch.out { background: var(--copper); }
+.swatch.budget { background: #3d6b8c; border-color: #3d6b8c; }
+.swatch.left { background: #5a7a38; border-color: #5a7a38; }
 .swatch.limit { background: transparent; border-color: var(--ink); border-style: dashed; }
 .col-in { fill: var(--olive); }
 .col-out { fill: var(--copper); }
+.col-budget-cap { fill: #3d6b8c; }
+.col-budget-left { fill: #5a7a38; }
 .chart-sub {
   margin: 0 1rem 0.2rem;
   font-family: var(--mono);
