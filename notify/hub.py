@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from collector.logging_config import get_logger
@@ -195,6 +196,29 @@ class TelegramHub:
             if action == "menu":
                 await event.respond(menu_message(), buttons=self._reply_keyboard())
                 return
+            if action == "monthly1":
+                text, chart_path = await asyncio.to_thread(self._build_monthly1_report)
+                try:
+                    if chart_path is not None:
+                        caption_limit = 1024
+                        if len(text) <= caption_limit:
+                            await event.respond(
+                                text,
+                                file=str(chart_path),
+                                buttons=self._reply_keyboard(),
+                            )
+                        else:
+                            await event.respond(
+                                file=str(chart_path),
+                                buttons=self._reply_keyboard(),
+                            )
+                            await event.respond(text, buttons=self._reply_keyboard())
+                    else:
+                        await event.respond(text, buttons=self._reply_keyboard())
+                finally:
+                    if chart_path is not None:
+                        chart_path.unlink(missing_ok=True)
+                return
             text = await asyncio.to_thread(self._build_action_text, action)
             # Always re-attach the tap keyboard under every report.
             await event.respond(text, buttons=self._reply_keyboard())
@@ -224,14 +248,7 @@ class TelegramHub:
             return format_health_report(snap)
 
         if action == "monthly1":
-            from collector.daily_budget import enrich_month_days
-
-            with SpendingDatabase() as db:
-                series = enrich_month_days(
-                    db.month_day_series(timezone_name=self.settings.timezone),
-                    self.settings.daily_limit_sar,
-                )
-            return format_monthly1_report(series, self.settings.monthly_limit_sar)
+            raise ValueError("monthly1 uses _build_monthly1_report")
 
         if action not in {"day", "week", "month", "year"}:
             return menu_message()
@@ -255,6 +272,29 @@ class TelegramHub:
                     }
         limit = self.settings.daily_limit_sar if action == "day" else None
         return format_period_report(report, limit)
+
+    def _build_monthly1_report(self) -> tuple[str, Path | None]:
+        from collector.daily_budget import enrich_month_days
+        from database.db import SpendingDatabase
+        from notify.alerts import format_monthly1_report
+        from notify.charts import write_month_day_chart_png
+
+        with SpendingDatabase() as db:
+            series = enrich_month_days(
+                db.month_day_series(timezone_name=self.settings.timezone),
+                self.settings.daily_limit_sar,
+            )
+        text = format_monthly1_report(series, self.settings.monthly_limit_sar)
+        chart_path: Path | None = None
+        try:
+            chart_path = write_month_day_chart_png(
+                series,
+                monthly_limit=self.settings.monthly_limit_sar,
+                daily_limit=self.settings.daily_limit_sar,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Monthly1 chart skipped: %s", exc)
+        return text, chart_path
 
 
 def start_telegram_hub(settings: TelegramSettings | None = None) -> TelegramHub | None:

@@ -11,9 +11,9 @@ readme = "README.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-telegram = ["telethon>=1.36"]
+telegram = ["telethon>=1.36", "matplotlib>=3.8"]
 macos = ["watchdog>=4.0", "psutil>=5.9"]
-idle = ["watchdog>=4.0", "telethon>=1.36", "psutil>=5.9"]
+idle = ["watchdog>=4.0", "telethon>=1.36", "psutil>=5.9", "matplotlib>=3.8"]
 
 [tool.setuptools]
 packages = [
