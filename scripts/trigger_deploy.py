@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import sys
 import time
@@ -66,6 +67,9 @@ def main() -> int:
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
             body = json.loads(response.read().decode("utf-8"))
+    except http.client.RemoteDisconnected:
+        print("Deploy accepted — server closed while restarting (expected).")
+        body = {"ok": True}
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         print(f"Deploy failed ({exc.code}): {detail}")

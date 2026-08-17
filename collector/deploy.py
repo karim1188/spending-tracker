@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import subprocess
+import threading
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -104,14 +105,10 @@ def spawn_restart_worker(settings: DeploySettings | None = None) -> Path:
     return log_path
 
 
-def request_deploy_restart(reason: str = "deploy requested") -> dict:
-    from notify.shutdown import request_shutdown
-
+def prepare_deploy_restart() -> dict:
+    """Spawn the pull+restart worker and return the API payload."""
     settings = DeploySettings.load()
     log_path = spawn_restart_worker(settings)
-    scheduled = request_shutdown(reason)
-    if not scheduled:
-        raise RuntimeError("Could not schedule app shutdown")
     try:
         log_ref = str(log_path.relative_to(PROJECT_ROOT))
     except ValueError:
@@ -123,3 +120,20 @@ def request_deploy_restart(reason: str = "deploy requested") -> dict:
         "port": settings.port,
         "log": log_ref,
     }
+
+
+def schedule_deploy_shutdown(reason: str, delay: float = 0.75) -> None:
+    """Shut down the app after the HTTP response has time to flush."""
+    from notify.shutdown import request_shutdown
+
+    def _shutdown() -> None:
+        request_shutdown(reason)
+
+    threading.Timer(delay, _shutdown).start()
+
+
+def request_deploy_restart(reason: str = "deploy requested") -> dict:
+    """Prepare restart worker and schedule shutdown (for tests/CLI)."""
+    result = prepare_deploy_restart()
+    schedule_deploy_shutdown(reason)
+    return result

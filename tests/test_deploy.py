@@ -40,7 +40,7 @@ def test_request_deploy_restart(tmp_path, monkeypatch):
 
     with patch("collector.deploy.DeploySettings.load", return_value=settings), patch(
         "collector.deploy.spawn_restart_worker", return_value=tmp_path / "deploy.log"
-    ) as spawn, patch("notify.shutdown.request_shutdown", return_value=True) as shutdown:
+    ) as spawn, patch("collector.deploy.schedule_deploy_shutdown") as shutdown:
         result = request_deploy_restart()
 
     assert result["ok"] is True

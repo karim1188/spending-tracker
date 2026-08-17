@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import subprocess
 import sys
@@ -101,8 +102,11 @@ def main() -> int:
             return exc.returncode or 1
 
     print(f"Triggering deploy at {deploy_url} …")
+    body = None
     try:
         body = _deploy_request(deploy_url, token)
+    except http.client.RemoteDisconnected:
+        print("Deploy accepted — server closed while restarting (expected).")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         print(f"Deploy failed ({exc.code}): {detail}")
@@ -111,13 +115,16 @@ def main() -> int:
         print(f"Could not reach ledger: {exc.reason}")
         return 1
 
-    if not body.get("ok"):
+    if body is not None and not body.get("ok"):
         print(body.get("error") or "Deploy failed")
         return 1
 
-    print(body.get("message") or "Deploy triggered")
-    if body.get("log"):
-        print(f"Log on Mac: {body['log']}")
+    if body:
+        print(body.get("message") or "Deploy triggered")
+        if body.get("log"):
+            print(f"Log on Mac: {body['log']}")
+    else:
+        print("Waiting for Mac to pull and restart…")
 
     if not args.no_wait:
         print("Waiting for ledger to come back…")

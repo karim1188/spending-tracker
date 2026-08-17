@@ -353,7 +353,8 @@ class LedgerHandler(BaseHTTPRequestHandler):
         from collector.deploy import (
             DeployConfigError,
             extract_deploy_token,
-            request_deploy_restart,
+            prepare_deploy_restart,
+            schedule_deploy_shutdown,
             token_is_valid,
         )
 
@@ -363,8 +364,9 @@ class LedgerHandler(BaseHTTPRequestHandler):
             if not token_is_valid(token):
                 self._send_json({"ok": False, "error": "invalid or missing deploy token"}, 401)
                 return
-            result = request_deploy_restart("deploy API: git pull restart")
+            result = prepare_deploy_restart()
             self._send_json(result)
+            schedule_deploy_shutdown("deploy API: git pull restart")
         except DeployConfigError as exc:
             self._send_json({"ok": False, "error": str(exc)}, 503)
         except Exception as exc:  # noqa: BLE001
