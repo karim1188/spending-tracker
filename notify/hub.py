@@ -191,6 +191,21 @@ class TelegramHub:
             return False
         return True
 
+    async def _send_monthly1(self, event, text: str, chart_path: Path | None) -> None:
+        buttons = self._reply_keyboard()
+        if chart_path is None:
+            await event.respond(text, buttons=buttons)
+            return
+        try:
+            await event.client.send_file(
+                event.chat_id,
+                str(chart_path),
+                force_document=False,
+            )
+            await event.respond(text, buttons=buttons)
+        finally:
+            chart_path.unlink(missing_ok=True)
+
     async def _handle_action(self, event, action: str) -> None:
         try:
             if action == "menu":
@@ -198,26 +213,7 @@ class TelegramHub:
                 return
             if action == "monthly1":
                 text, chart_path = await asyncio.to_thread(self._build_monthly1_report)
-                try:
-                    if chart_path is not None:
-                        caption_limit = 1024
-                        if len(text) <= caption_limit:
-                            await event.respond(
-                                text,
-                                file=str(chart_path),
-                                buttons=self._reply_keyboard(),
-                            )
-                        else:
-                            await event.respond(
-                                file=str(chart_path),
-                                buttons=self._reply_keyboard(),
-                            )
-                            await event.respond(text, buttons=self._reply_keyboard())
-                    else:
-                        await event.respond(text, buttons=self._reply_keyboard())
-                finally:
-                    if chart_path is not None:
-                        chart_path.unlink(missing_ok=True)
+                await self._send_monthly1(event, text, chart_path)
                 return
             text = await asyncio.to_thread(self._build_action_text, action)
             # Always re-attach the tap keyboard under every report.
@@ -285,15 +281,11 @@ class TelegramHub:
                 self.settings.daily_limit_sar,
             )
         text = format_monthly1_report(series, self.settings.monthly_limit_sar)
-        chart_path: Path | None = None
-        try:
-            chart_path = write_month_day_chart_png(
-                series,
-                monthly_limit=self.settings.monthly_limit_sar,
-                daily_limit=self.settings.daily_limit_sar,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.info("Monthly1 chart skipped: %s", exc)
+        chart_path = write_month_day_chart_png(
+            series,
+            monthly_limit=self.settings.monthly_limit_sar,
+            daily_limit=self.settings.daily_limit_sar,
+        )
         return text, chart_path
 
 
