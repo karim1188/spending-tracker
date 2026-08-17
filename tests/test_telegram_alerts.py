@@ -159,7 +159,7 @@ def test_monthly_spending_warning_at_6000(tmp_path):
     db.close()
 
 
-def test_format_monthly1_report_includes_day_rows():
+def test_format_monthly1_report_is_short_summary():
     from collector.daily_budget import enrich_month_days
     from notify.alerts import format_monthly1_report
 
@@ -180,9 +180,10 @@ def test_format_monthly1_report_includes_day_rows():
     )
     text = format_monthly1_report(series, 6000)
     assert "MONTHLY1" in text
-    assert "D02" in text
     assert "250.00" in text
-    assert "roll" in text.lower()
+    assert "DAY BY DAY" not in text
+    assert "D02" not in text
+    assert "chart above" in text.lower()
     assert "6,000" in text or "6000" in text
 
 

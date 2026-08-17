@@ -10,7 +10,7 @@ from database.db import SpendingDatabase
 from notify.settings import TelegramSettings, load_telegram_settings
 from notify.shutdown import request_shutdown
 from notify.telegram import sender_from_settings
-from notify.theme import BRAND, bullet_rows, budget_lines, card, format_sar, kv, section
+from notify.theme import BRAND, bullet_rows, budget_lines, card, format_sar, kv, progress_bar, section
 from notify.thermal import ThermalStatus, read_thermal_status
 
 WARNING_KEY = "last_warning_day"
@@ -147,46 +147,32 @@ def format_near_limit(
 def format_monthly1_report(series: dict, monthly_limit: float) -> str:
     spending = float(series.get("spending") or 0)
     income = float(series.get("income") or 0)
-    salary = float(series.get("salary") or 0)
     body = [
         kv("Income", format_sar(income)),
-        kv("Salary", format_sar(salary)),
         kv("Spent", format_sar(spending)),
         kv("Net", format_sar(income - spending)),
-        *budget_lines(spending, monthly_limit),
         kv("Through", f"day {series.get('through_day')} / {series.get('days_in_month')}"),
     ]
-    win_start = series.get("salary_window_start")
-    win_end = series.get("salary_window_end")
-    if win_start and win_end:
-        body.append(kv("Salary window", f"{win_start} → {win_end}"))
     budget = series.get("daily_budget")
+    daily_limit = float(series.get("daily_limit_sar") or 200)
     if budget:
-        body.append(kv("Today left", format_sar(float(budget["daily_remaining"]))))
-        if float(budget.get("rollover_in") or 0) > 0:
-            body.append(kv("Rollover in", format_sar(float(budget["rollover_in"]))))
-    day_lines: list[str] = []
-    for row in series.get("days") or []:
-        if not row["income"] and not row["spending"]:
-            continue
-        income_bit = f"in {format_sar(row['income'])}  " if row["income"] else ""
-        day_lines.append(
-            f"D{row['day']:02d}  {income_bit}"
-            f"out {format_sar(row['spending'])}  "
-            f"left {format_sar(row.get('daily_remaining', 0))}  "
-            f"roll {format_sar(row.get('rollover_out', 0))}"
-        )
-    if not day_lines:
-        day_lines = ["No income or spending yet this month."]
-    # Keep Telegram readable — show latest active days if the month is busy.
-    if len(day_lines) > 14:
-        day_lines = ["… earlier quiet days omitted", *day_lines[-13:]]
+        allowance = float(budget.get("daily_allowance") or daily_limit)
+        spent_today = float(budget.get("spent_today") or 0)
+        body.append(kv("Today", f"{format_sar(spent_today)} of {format_sar(allowance)}"))
+        body.append(kv("Left today", format_sar(float(budget["daily_remaining"]))))
+    remaining_month = monthly_limit - spending
+    if remaining_month >= 0:
+        body.append(kv("Month left", format_sar(remaining_month)))
+    else:
+        body.append(kv("Over month", format_sar(-remaining_month)))
+    ratio = (spending / monthly_limit) if monthly_limit > 0 else 0.0
+    body.append(f"[{progress_bar(ratio)}] {min(ratio, 1.0) * 100:.0f}% of {format_sar(monthly_limit)}")
     return card(
         "Monthly1",
         subtitle=str(series.get("label") or series.get("period") or "This month"),
-        sections=[body, section("Day by day", day_lines)],
+        sections=[body],
         badge="month to date",
-        footer=f"Monthly warn at {format_sar(monthly_limit)} · daily {format_sar(float(series.get('daily_limit_sar') or 200))} rolls over",
+        footer="Day-by-day chart above · daily budget rolls over",
     )
 
 

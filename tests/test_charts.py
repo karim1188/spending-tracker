@@ -6,6 +6,9 @@ from collector.daily_budget import enrich_month_days
 from notify.charts import write_month_day_chart_png
 
 
+pytest.importorskip("matplotlib")
+
+
 def test_write_month_day_chart_png_creates_and_removes(tmp_path):
     series = enrich_month_days(
         {
