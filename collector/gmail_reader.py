@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from email import message_from_bytes
 from email.header import decode_header, make_header
+from email.message import Message
 from email.utils import parsedate_to_datetime
 import imaplib
 import json
@@ -39,6 +40,16 @@ class GmailMessage:
     date: datetime | None
     snippet: str
     unread: bool
+
+
+@dataclass(frozen=True)
+class GmailPdfAttachment:
+    uid: str
+    from_addr: str
+    subject: str
+    date: datetime | None
+    filename: str
+    data: bytes
 
 
 def load_gmail_config(path: Path | None = None) -> dict:
@@ -261,6 +272,74 @@ class GmailReader:
             messages.append(msg)
         return messages
 
+    def list_pdf_attachments(
+        self,
+        *,
+        gmail_query: str,
+        limit: int = 10,
+        since: datetime | None = None,
+        fallback_from: str | None = None,
+    ) -> list[GmailPdfAttachment]:
+        """Fetch PDF attachments without marking messages read (BODY.PEEK / UID FETCH)."""
+        self.connect()
+        client = self._require_client()
+        query = gmail_query.strip()
+        if since is not None:
+            query = f"{query} after:{since.strftime('%Y/%m/%d')}"
+        ids = self._gmail_search_uids(client, query, fallback_from=fallback_from, since=since)
+        if not ids:
+            return []
+        chosen = ids[-max(1, limit) :]
+        chosen.reverse()
+        attachments: list[GmailPdfAttachment] = []
+        for uid in chosen:
+            raw_msg = self._fetch_raw_uid(client, uid)
+            if raw_msg is None:
+                continue
+            msg = message_from_bytes(raw_msg)
+            from_addr = _decode_header_value(msg.get("From"))
+            subject = _decode_header_value(msg.get("Subject")) or "(no subject)"
+            when = _parse_message_date(msg)
+            for filename, data in iter_pdf_attachments(msg):
+                attachments.append(
+                    GmailPdfAttachment(
+                        uid=uid,
+                        from_addr=from_addr,
+                        subject=subject,
+                        date=when,
+                        filename=filename,
+                        data=data,
+                    )
+                )
+        return attachments
+
+    def _gmail_search_uids(
+        self,
+        client: imaplib.IMAP4_SSL,
+        gmail_query: str,
+        *,
+        fallback_from: str | None,
+        since: datetime | None,
+    ) -> list[str]:
+        status, data = client.uid("SEARCH", "X-GM-RAW", gmail_query)
+        if status == "OK" and data and data[0]:
+            return [item.decode("ascii", errors="ignore") for item in data[0].split() if item]
+        criteria: list[str] = ["ALL"]
+        if fallback_from:
+            criteria = ["FROM", fallback_from]
+        if since is not None:
+            criteria.append(f'SINCE {since.strftime("%d-%b-%Y")}')
+        status, data = client.uid("SEARCH", *criteria)
+        if status != "OK" or not data or not data[0]:
+            return []
+        return [item.decode("ascii", errors="ignore") for item in data[0].split() if item]
+
+    def _fetch_raw_uid(self, client: imaplib.IMAP4_SSL, uid: str) -> bytes | None:
+        status, data = client.uid("FETCH", uid, "(BODY.PEEK[])")
+        if status != "OK" or not data:
+            return None
+        return _extract_body_bytes(data)
+
     def _fetch_message(self, client: imaplib.IMAP4_SSL, uid: str) -> GmailMessage | None:
         status, data = client.fetch(uid, "(BODY.PEEK[] FLAGS)")
         if status != "OK" or not data:
@@ -294,3 +373,20 @@ def _extract_flags(fetch_data: Iterable) -> bytes:
         if isinstance(item, tuple) and item and isinstance(item[0], bytes):
             return item[0]
     return b""
+
+
+def iter_pdf_attachments(msg: Message) -> list[tuple[str, bytes]]:
+    found: list[tuple[str, bytes]] = []
+    for part in msg.walk():
+        if part.get_content_maintype() == "multipart":
+            continue
+        filename = part.get_filename() or ""
+        content_type = (part.get_content_type() or "").lower()
+        is_pdf = filename.lower().endswith(".pdf") or content_type == "application/pdf"
+        if not is_pdf:
+            continue
+        payload = part.get_payload(decode=True)
+        if not payload:
+            continue
+        found.append((filename or "attachment.pdf", bytes(payload)))
+    return found
