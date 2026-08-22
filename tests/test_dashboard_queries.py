@@ -330,6 +330,8 @@ def test_dashboard_income_versus_spending(tmp_path):
     assert len(dash["balances_by_bank"]) == 1
     assert dash["balances_by_bank"][0]["bank"] == "SNB"
     assert dash["balances_by_bank"][0]["balance"] == 18500
+    assert dash["balances_by_bank"][0]["is_wallet"] is False
+    assert dash["wallets_total"] is None
     year_dash = db.dashboard(year="2026", now=now)
     august = next(row for row in year_dash["by_month"] if row["period"] == "2026-08")
     assert august["income"] == 12400
@@ -441,6 +443,31 @@ def test_dashboard_sums_latest_balance_per_bank(tmp_path):
     assert dash["accounts_total"] == 15500
     by_bank = {row["bank"]: row["balance"] for row in dash["balances_by_bank"]}
     assert by_bank == {"Alinma": 3500.0, "SNB": 12000.0}
+    assert dash["wallets_total"] is None
+    db.close()
+
+
+def test_dashboard_excludes_wallet_from_accounts_total(tmp_path):
+    from zoneinfo import ZoneInfo
+
+    db = SpendingDatabase(tmp_path / "spending.db")
+    now = datetime(2026, 8, 10, 12, tzinfo=ZoneInfo("Asia/Riyadh"))
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="wallet",
+            bank="MobilyPay",
+            transaction_type="card_purchase",
+            amount=10,
+            currency="SAR",
+            category="Shopping",
+            balance=0.4,
+            transaction_time=datetime(2026, 8, 5, 9, 0, tzinfo=timezone.utc),
+        )
+    )
+    dash = db.dashboard(now=now)
+    assert dash["accounts_total"] is None
+    assert dash["wallets_total"] == 0.4
+    assert dash["balances_by_bank"][0]["is_wallet"] is True
     db.close()
 
 

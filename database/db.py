@@ -12,6 +12,8 @@ NON_SPENDING_SQL = "('salary', 'bank_transfer_in', 'wallet_topup')"
 RECURRING_FREQUENCIES = ("daily", "weekly", "monthly")
 
 COLLECTOR_SOURCE = "macos_messages"
+# Wallets publish SMS balances; main bank (SNB) purchase SMS usually do not.
+WALLET_BANKS = frozenset({"MobilyPay", "STCPay", "urpay", "UrPay", "STCpay"})
 MONTH_LABELS = (
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -622,10 +624,13 @@ class SpendingDatabase:
 
         income = salary + transfers_in
         balances_by_bank = [
-            {"bank": name, "balance": bal, "at": stamp}
+            {"bank": name, "balance": bal, "at": stamp, "is_wallet": name in WALLET_BANKS}
             for name, (stamp, bal) in sorted(bank_balances.items(), key=lambda item: item[0])
         ]
-        accounts_total = sum(item["balance"] for item in balances_by_bank) if balances_by_bank else None
+        bank_only = [item for item in balances_by_bank if not item["is_wallet"]]
+        wallet_only = [item for item in balances_by_bank if item["is_wallet"]]
+        accounts_total = sum(item["balance"] for item in bank_only) if bank_only else None
+        wallets_total = sum(item["balance"] for item in wallet_only) if wallet_only else None
         by_category = [
             {"label": label, "total_amount": total}
             for label, total in sorted(
@@ -653,6 +658,7 @@ class SpendingDatabase:
             "latest_balance_at": latest_balance_at,
             "latest_balance_bank": latest_balance_bank,
             "accounts_total": accounts_total,
+            "wallets_total": wallets_total,
             "balances_by_bank": balances_by_bank,
             "by_category": by_category,
             "by_month": by_month,
