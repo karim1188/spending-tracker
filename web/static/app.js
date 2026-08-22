@@ -460,18 +460,20 @@ async function showDashboard() {
   dashNet.classList.toggle("net-pos", data.net >= 0);
   dashNetSub.textContent = data.net >= 0 ? "money in minus spending this month" : "spent more than came in this month";
   const banks = (data.balances_by_bank || []).filter((row) => !row.is_wallet);
-  const wallets = (data.balances_by_bank || []).filter((row) => row.is_wallet);
-  if (data.accounts_total != null) {
-    dashBalance.textContent = sar(data.accounts_total);
-    dashBalanceSub.textContent = banks
-      .map((row) => `${row.bank} ${sar(row.balance)}`)
-      .join(" · ");
-  } else {
+  if (data.accounts_total == null) {
     dashBalance.textContent = "—";
-    const walletBit = wallets.length
-      ? ` · wallet ${wallets.map((row) => `${row.bank} ${sar(row.balance)}`).join(", ")}`
-      : "";
-    dashBalanceSub.textContent = `SNB SMS has no balance line${walletBit}`;
+    dashBalanceSub.textContent = "no bank transactions yet";
+  } else {
+    dashBalance.textContent = sar(data.accounts_total);
+    dashBalance.classList.toggle("net-neg", data.accounts_total < 0);
+    dashBalance.classList.toggle("net-pos", data.accounts_total >= 0);
+    const inTotal = Number(data.accounts_money_in) || 0;
+    const outTotal = Number(data.accounts_money_out) || 0;
+    if (banks.length === 1) {
+      dashBalanceSub.textContent = `${banks[0].bank} · in ${sar(inTotal)} − out ${sar(outTotal)}`;
+    } else {
+      dashBalanceSub.textContent = `in ${sar(inTotal)} − out ${sar(outTotal)} · ${banks.map((row) => `${row.bank} ${sar(row.balance)}`).join(" · ")}`;
+    }
   }
   renderColumnChart(dashFlow, data.by_month || []);
   if (dashFlowSub) {

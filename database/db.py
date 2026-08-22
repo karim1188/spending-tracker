@@ -9,10 +9,14 @@ from models.transaction import Transaction
 
 NON_SPENDING_TYPES = ("salary", "bank_transfer_in", "wallet_topup")
 NON_SPENDING_SQL = "('salary', 'bank_transfer_in', 'wallet_topup')"
+# Money that increases a bank ledger (everything else with an amount decreases it).
+BALANCE_INFLOW_TYPES = frozenset(
+    {"salary", "bank_transfer_in", "cash_deposit", "refund"}
+)
 RECURRING_FREQUENCIES = ("daily", "weekly", "monthly")
 
 COLLECTOR_SOURCE = "macos_messages"
-# Wallets publish SMS balances; main bank (SNB) purchase SMS usually do not.
+# Wallets are tracked separately from bank account ledgers.
 WALLET_BANKS = frozenset({"MobilyPay", "STCPay", "urpay", "UrPay", "STCpay"})
 MONTH_LABELS = (
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -572,8 +576,10 @@ class SpendingDatabase:
         latest_balance_at = None
         latest_balance_bank = None
         latest_stamp = None
-        # Latest known SMS balance per bank → sum = money across accounts.
-        bank_balances: dict[str, tuple[str, float]] = {}
+        # Lifetime ledger per bank: inflows − outflows (not SMS رصيد).
+        ledger_in: dict[str, float] = {}
+        ledger_out: dict[str, float] = {}
+        sms_balances: dict[str, tuple[str, float]] = {}
 
         for row in rows:
             local_day = self._local_date(row["stamp"], tz)
@@ -582,19 +588,25 @@ class SpendingDatabase:
             amount = float(row["amount"] or 0)
             ttype = row["transaction_type"] or ""
             stamp_row = str(row["stamp"])
+            bank_name = (row["bank"] or "Unknown").strip() or "Unknown"
 
-            # Account balances use the latest SMS balance per bank (all time).
             if row["balance"] is not None:
                 bal = float(row["balance"])
-                bank_name = (row["bank"] or "Unknown").strip() or "Unknown"
                 if latest_stamp is None or stamp_row > latest_stamp:
                     latest_stamp = stamp_row
                     latest_balance = bal
                     latest_balance_at = stamp_row
                     latest_balance_bank = bank_name
-                prev = bank_balances.get(bank_name)
+                prev = sms_balances.get(bank_name)
                 if prev is None or stamp_row > prev[0]:
-                    bank_balances[bank_name] = (stamp_row, bal)
+                    sms_balances[bank_name] = (stamp_row, bal)
+
+            # All-time calculated balance (every bank / wallet with amounts).
+            if amount:
+                if ttype in BALANCE_INFLOW_TYPES:
+                    ledger_in[bank_name] = ledger_in.get(bank_name, 0.0) + amount
+                else:
+                    ledger_out[bank_name] = ledger_out.get(bank_name, 0.0) + amount
 
             if ttype == "salary":
                 pay_y, pay_m = pay_month_for_salary(local_day)
@@ -623,14 +635,30 @@ class SpendingDatabase:
                     category_totals[label] = category_totals.get(label, 0.0) + amount
 
         income = salary + transfers_in
-        balances_by_bank = [
-            {"bank": name, "balance": bal, "at": stamp, "is_wallet": name in WALLET_BANKS}
-            for name, (stamp, bal) in sorted(bank_balances.items(), key=lambda item: item[0])
-        ]
+        all_banks = sorted(set(ledger_in) | set(ledger_out) | set(sms_balances))
+        balances_by_bank = []
+        for name in all_banks:
+            inflow = ledger_in.get(name, 0.0)
+            outflow = ledger_out.get(name, 0.0)
+            sms = sms_balances.get(name)
+            balances_by_bank.append(
+                {
+                    "bank": name,
+                    "balance": inflow - outflow,
+                    "money_in": inflow,
+                    "money_out": outflow,
+                    "is_wallet": name in WALLET_BANKS,
+                    "source": "calculated",
+                    "sms_balance": sms[1] if sms else None,
+                    "sms_balance_at": sms[0] if sms else None,
+                }
+            )
         bank_only = [item for item in balances_by_bank if not item["is_wallet"]]
         wallet_only = [item for item in balances_by_bank if item["is_wallet"]]
         accounts_total = sum(item["balance"] for item in bank_only) if bank_only else None
         wallets_total = sum(item["balance"] for item in wallet_only) if wallet_only else None
+        money_in_total = sum(item["money_in"] for item in bank_only)
+        money_out_total = sum(item["money_out"] for item in bank_only)
         by_category = [
             {"label": label, "total_amount": total}
             for label, total in sorted(
@@ -659,6 +687,8 @@ class SpendingDatabase:
             "latest_balance_bank": latest_balance_bank,
             "accounts_total": accounts_total,
             "wallets_total": wallets_total,
+            "accounts_money_in": money_in_total,
+            "accounts_money_out": money_out_total,
             "balances_by_bank": balances_by_bank,
             "by_category": by_category,
             "by_month": by_month,

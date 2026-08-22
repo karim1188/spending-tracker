@@ -326,11 +326,14 @@ def test_dashboard_income_versus_spending(tmp_path):
     assert dash["net"] == 12150
     assert dash["latest_balance"] == 18500
     assert dash["scope_period"] == "2026-08"
-    assert dash["accounts_total"] == 18500
+    # Salary 12000 + transfer in 400 − spend 250
+    assert dash["accounts_total"] == 12150
+    assert dash["accounts_money_in"] == 12400
+    assert dash["accounts_money_out"] == 250
     assert len(dash["balances_by_bank"]) == 1
     assert dash["balances_by_bank"][0]["bank"] == "SNB"
-    assert dash["balances_by_bank"][0]["balance"] == 18500
-    assert dash["balances_by_bank"][0]["is_wallet"] is False
+    assert dash["balances_by_bank"][0]["balance"] == 12150
+    assert dash["balances_by_bank"][0]["source"] == "calculated"
     assert dash["wallets_total"] is None
     year_dash = db.dashboard(year="2026", now=now)
     august = next(row for row in year_dash["by_month"] if row["period"] == "2026-08")
@@ -440,9 +443,10 @@ def test_dashboard_sums_latest_balance_per_bank(tmp_path):
         )
     )
     dash = db.dashboard(now=now)
-    assert dash["accounts_total"] == 15500
+    # SNB: 40 out; Alinma: 20 out; older SNB 50 also out → SNB -90, Alinma -20
+    assert dash["accounts_total"] == -110
     by_bank = {row["bank"]: row["balance"] for row in dash["balances_by_bank"]}
-    assert by_bank == {"Alinma": 3500.0, "SNB": 12000.0}
+    assert by_bank == {"Alinma": -20.0, "SNB": -90.0}
     assert dash["wallets_total"] is None
     db.close()
 
@@ -452,6 +456,28 @@ def test_dashboard_excludes_wallet_from_accounts_total(tmp_path):
 
     db = SpendingDatabase(tmp_path / "spending.db")
     now = datetime(2026, 8, 10, 12, tzinfo=ZoneInfo("Asia/Riyadh"))
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="sal",
+            bank="SNB",
+            transaction_type="salary",
+            amount=5000,
+            currency="SAR",
+            category="Salary",
+            transaction_time=datetime(2026, 8, 1, 9, 0, tzinfo=timezone.utc),
+        )
+    )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="topup",
+            bank="SNB",
+            transaction_type="wallet_topup",
+            amount=100,
+            currency="SAR",
+            category="Transfers",
+            transaction_time=datetime(2026, 8, 2, 9, 0, tzinfo=timezone.utc),
+        )
+    )
     db.insert_transaction(
         Transaction(
             source_message_guid="wallet",
@@ -465,9 +491,9 @@ def test_dashboard_excludes_wallet_from_accounts_total(tmp_path):
         )
     )
     dash = db.dashboard(now=now)
-    assert dash["accounts_total"] is None
-    assert dash["wallets_total"] == 0.4
-    assert dash["balances_by_bank"][0]["is_wallet"] is True
+    assert dash["accounts_total"] == 4900  # 5000 in − 100 topup out
+    assert dash["wallets_total"] == -10
+    assert any(row["bank"] == "MobilyPay" and row["is_wallet"] for row in dash["balances_by_bank"])
     db.close()
 
 
