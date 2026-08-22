@@ -23,6 +23,7 @@ from collector.thndr_pdf import (
     PdfParseResult,
     aggregate_stocks,
     is_skip_filename,
+    is_trade_pdf_subject,
     parse_pdf_bytes,
     parse_pdf_file,
 )
@@ -40,11 +41,13 @@ def _print_parse_result(result: PdfParseResult) -> list[InvoiceTrade]:
     if result.error:
         print(f"  error: {result.error}")
     elif result.kind == "statement":
-        print("  statement is archived by the portfolio app; quantities come from invoices")
+        print("  statement PDF — portfolio archives it; stock quantities come from invoices")
         if result.preview:
             print(f"  preview: {result.preview[:160]}")
     elif result.kind == "other":
         print("  unrecognized PDF (portfolio would keep a sample)")
+        if result.preview:
+            print(f"  preview: {result.preview[:160]}")
     elif result.kind == "skipped":
         print("  skipped (contract/agreement)")
     for trade in result.trades:
@@ -60,7 +63,7 @@ def _print_trades(trades: list[InvoiceTrade]) -> None:
     if not trades:
         print("No invoice trades parsed.")
         return
-    print("Invoice trades (what the portfolio would store as transactions)")
+    print("Invoice trades (same fields the portfolio stores as transactions)")
     print()
     for trade in trades:
         print(
@@ -74,21 +77,25 @@ def _print_trades(trades: list[InvoiceTrade]) -> None:
     for stock in aggregate_stocks(trades):
         print(
             f"  {stock['symbol']:<12}  {stock['isin']:<16}  "
-            f"qty {stock['quantity']:>8}  {stock['market']:<4}  "
-            f"{stock['currency']}  {stock['name']}"
+            f"qty {stock['quantity']:>8}  buys {stock['buys']:>6}  sells {stock['sells']:>6}  "
+            f"{stock['market']:<4}  {stock['currency']}  {stock['name']}"
         )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Test Thndr PDF → stock parsing on the Mac. "
-            "Uses Gmail IMAP (same config as scripts/check_gmail.py). "
-            "Does not write the portfolio database."
+            "Download Thndr invoice/statement PDFs from Gmail and parse trades "
+            "with the same logic as the portfolio app. Does not write a portfolio DB."
         )
     )
     parser.add_argument("--config", type=Path, default=GMAIL_CONFIG_PATH)
-    parser.add_argument("--limit", type=int, default=8, help="Max Thndr emails or local PDFs")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=15,
+        help="Max invoice/statement emails to download PDFs from",
+    )
     parser.add_argument("--since", type=str, default=None, help="Only emails on/after YYYY-MM-DD")
     parser.add_argument(
         "--from-dir",
@@ -106,7 +113,12 @@ def main() -> int:
     parser.add_argument(
         "--mailbox",
         default=None,
-        help='IMAP mailbox (default: Gmail All Mail, then config mailbox/INBOX)',
+        help="IMAP mailbox (default: Gmail All Mail)",
+    )
+    parser.add_argument(
+        "--all-thndr",
+        action="store_true",
+        help="Do not filter to Invoice/E-statement subjects (download any Thndr PDF)",
     )
     args = parser.parse_args()
     setup_logging()
@@ -155,7 +167,8 @@ def main() -> int:
         imap_host=cfg["imap_host"],
         mailbox=args.mailbox or cfg["mailbox"],
     )
-    print(f"Searching Gmail for Thndr PDFs ({mask_email(cfg['email'])})")
+    print(f"Fetching Thndr invoice PDFs ({mask_email(cfg['email'])})")
+    print("Parser: same rules as portfolio tickers.parse_invoice / email_fetcher")
     print()
     try:
         with reader:
@@ -167,25 +180,38 @@ def main() -> int:
             query, uids = reader.search_gmail_uids(
                 THNDR_GMAIL_QUERIES,
                 since=since,
-                fallback_from="thndr.app",
+                fallback_from="system.thndr.app",
             )
             print(f"Mailbox: {mailbox}")
             print(f"Query: {query or '(none matched)'}")
             print(f"Matched {len(uids)} message(s)")
             print()
             if not uids:
-                print("No Thndr emails found in this mailbox.")
-                print("If they exist in Gmail, they may be in another account than config/gmail.json.")
+                print("No Thndr PDF emails found.")
                 return 0
-            chosen = uids[-max(1, args.limit) :]
-            chosen.reverse()
-            headers = reader.peek_headers(chosen)
-            print("Matching emails")
+
+            # Peek more than --limit so we can skip welcome/dividend/etc. subjects.
+            peek_n = max(args.limit * 4, 40)
+            peek_uids = uids[-peek_n:]
+            peek_uids.reverse()
+            headers = reader.peek_headers(peek_uids)
+            trade_uids: list[str] = []
+            print("Candidate emails")
             for msg in headers:
-                print(f"  {_format_when(msg.date)}  {msg.subject}")
-                print(f"     From: {mask_email(msg.from_addr)}")
+                keep = args.all_thndr or is_trade_pdf_subject(msg.subject)
+                mark = "KEEP" if keep else "skip"
+                print(f"  [{mark}] {_format_when(msg.date)}  {msg.subject}")
+                print(f"         From: {mask_email(msg.from_addr)}")
+                if keep:
+                    trade_uids.append(msg.uid)
+                if len(trade_uids) >= max(1, args.limit):
+                    break
             print()
-            attachments = reader.fetch_pdf_attachments(chosen)
+            if not trade_uids:
+                print("No Invoice / E-statement emails in this batch.")
+                print("Re-run with --all-thndr to download every Thndr PDF, or raise --limit.")
+                return 0
+            attachments = reader.fetch_pdf_attachments(trade_uids)
     except GmailConfigError as exc:
         print(str(exc))
         return 2
@@ -197,7 +223,8 @@ def main() -> int:
         print("Those emails had no PDF attachments (or the PDF part could not be decoded).")
         return 0
 
-    print(f"Found {len(attachments)} PDF attachment(s) (read-only, not marked read)")
+    print(f"Found {len(attachments)} PDF attachment(s) — parsing with portfolio invoice rules")
+    print()
     saved = 0
     for attachment in attachments:
         print(f"  {_format_when(attachment.date)}  {attachment.subject}")

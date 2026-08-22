@@ -28,17 +28,32 @@ SKIP_NAME_PREFIXES = (
     "code",
 )
 THNDR_SENDER_HINTS = ("thndr.app", "system.thndr.app", "thndr")
-# Simple Gmail queries only — nested quotes break IMAP X-GM-RAW quoting.
+# Prefer trade PDFs (portfolio logic). Keep simple queries — nested quotes break X-GM-RAW.
 THNDR_GMAIL_QUERIES = (
-    "from:thndr.app has:attachment filename:pdf",
+    "from:system.thndr.app subject:invoice has:attachment filename:pdf",
+    "from:system.thndr.app subject:E-statement has:attachment filename:pdf",
     "from:system.thndr.app has:attachment filename:pdf",
-    "subject:thndr has:attachment filename:pdf",
-    "thndr has:attachment filename:pdf",
+    "from:thndr.app has:attachment filename:pdf",
+    "subject:Thndr Invoice has:attachment filename:pdf",
+    "subject:E-statement has:attachment filename:pdf",
+    "from:system.thndr.app",
     "from:thndr.app",
-    "subject:thndr",
-    "thndr",
 )
 THNDR_GMAIL_QUERY = THNDR_GMAIL_QUERIES[0]
+
+# Subjects that carry trade/position PDFs (same as portfolio email_fetcher).
+TRADE_PDF_SUBJECT_HINTS = (
+    "thndr invoice",
+    "e-statement",
+    "e statement",
+    "monthly e-statement",
+    "your requested e-statement",
+)
+
+
+def is_trade_pdf_subject(subject: str) -> bool:
+    lower = (subject or "").lower()
+    return any(hint in lower for hint in TRADE_PDF_SUBJECT_HINTS)
 
 
 @dataclass(frozen=True)

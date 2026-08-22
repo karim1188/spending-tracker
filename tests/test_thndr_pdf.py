@@ -9,6 +9,7 @@ from collector.thndr_pdf import (
     aggregate_stocks,
     classify_pdf,
     is_skip_filename,
+    is_trade_pdf_subject,
     parse_invoice_text,
 )
 
@@ -43,6 +44,14 @@ def test_classify_invoice_and_statement():
 def test_skip_contracts():
     assert is_skip_filename("Digital Contract.pdf") is True
     assert is_skip_filename("Your Thndr Invoice.pdf") is False
+
+
+def test_trade_pdf_subject_filter():
+    assert is_trade_pdf_subject("Your Thndr Invoice (2026-08-17)") is True
+    assert is_trade_pdf_subject("Your monthly E-statement - Jul 2026") is True
+    assert is_trade_pdf_subject("Welcome to Thndr Trader") is False
+    assert is_trade_pdf_subject("Cash Dividends Added") is False
+    assert is_trade_pdf_subject("Your top-up request has been accepted") is False
 
 
 def test_parse_invoice_creates_stock_trade():
