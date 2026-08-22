@@ -124,6 +124,24 @@ class FakeUidImap:
         return "BYE", [b""]
 
 
+def test_search_from_thndr_uses_all_mail(monkeypatch):
+    fake = FakeUidImap()
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", lambda host, port: fake)
+    reader = GmailReader("you@gmail.com", "good")
+    with reader:
+        mailbox = reader.prefer_all_mail()
+        query, uids = reader.search_gmail_uids(
+            ["from:thndr", "subject:thndr", "thndr"],
+            fallback_from="thndr",
+        )
+        rows = reader.peek_headers(uids[-3:], full=True)
+    assert mailbox == "[Gmail]/All Mail"
+    assert fake.selected == "[Gmail]/All Mail"
+    assert uids == ["99"]
+    assert query == "from:thndr"
+    assert rows[0].subject == "Your Thndr Invoice"
+
+
 def test_list_pdf_attachments_uses_uid_fetch(monkeypatch):
     fake = FakeUidImap()
     monkeypatch.setattr(imaplib, "IMAP4_SSL", lambda host, port: fake)

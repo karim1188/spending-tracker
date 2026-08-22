@@ -60,6 +60,9 @@ class FakeImapClient:
         if password == "bad":
             raise imaplib.IMAP4.error("Invalid credentials")
 
+    def list(self, directory='""', pattern="*"):
+        return "OK", [b'(\\HasNoChildren) "/" INBOX']
+
     def select(self, mailbox, readonly=False):
         self.selected = mailbox
         return "OK", [b"1"]

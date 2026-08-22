@@ -22,7 +22,7 @@ def _format_when(when: datetime | None) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Check Gmail inbox on macOS via IMAP (Gmail only — not iCloud Mail)"
+        description="Search Gmail on macOS via IMAP (Gmail only — not iCloud Mail)"
     )
     parser.add_argument(
         "--config",
@@ -37,9 +37,24 @@ def main() -> int:
         "--since",
         type=str,
         default=None,
-        help="Only messages on/after YYYY-MM-DD (IMAP SINCE)",
+        help="Only messages on/after YYYY-MM-DD",
     )
-    parser.add_argument("--from", dest="from_pattern", default=None, help="Filter sender text")
+    parser.add_argument(
+        "--from",
+        dest="from_pattern",
+        default=None,
+        help="Gmail search for this sender/text (e.g. thndr). Searches All Mail, not only INBOX.",
+    )
+    parser.add_argument(
+        "--mailbox",
+        default=None,
+        help="IMAP mailbox. Default: [Gmail]/All Mail so archived mail is included.",
+    )
+    parser.add_argument(
+        "--inbox",
+        action="store_true",
+        help="Stay on INBOX (skip All Mail)",
+    )
     args = parser.parse_args()
     logger = setup_logging()
 
@@ -52,11 +67,12 @@ def main() -> int:
         print("Google Account → Security → App passwords → generate one for Mail")
         return 2
 
+    mailbox_arg = "INBOX" if args.inbox else (args.mailbox or cfg["mailbox"])
     reader = GmailReader(
         email=cfg["email"],
         app_password=cfg["app_password"],
         imap_host=cfg["imap_host"],
-        mailbox=cfg["mailbox"],
+        mailbox=mailbox_arg,
     )
 
     if args.test:
@@ -64,7 +80,7 @@ def main() -> int:
         if result.ok:
             logger.info(result.message)
             if result.unread_count is not None:
-                logger.info("Unread in %s: %s", cfg["mailbox"], result.unread_count)
+                logger.info("Unread in %s: %s", reader.mailbox, result.unread_count)
             print(f"OK — Gmail reachable for {mask_email(result.email or cfg['email'])}")
             if result.unread_count is not None:
                 print(f"Unread: {result.unread_count}")
@@ -80,24 +96,56 @@ def main() -> int:
             print("Invalid --since date; use YYYY-MM-DD")
             return 2
 
+    query_used = ""
     try:
         with reader:
-            messages = reader.list_messages(
-                limit=max(1, args.limit),
-                unread_only=args.unread,
-                since=since,
-                from_pattern=args.from_pattern,
-            )
+            if args.inbox:
+                mailbox = reader.mailbox
+            elif args.mailbox:
+                reader.select_mailbox(args.mailbox)
+                mailbox = reader.mailbox
+            else:
+                mailbox = reader.prefer_all_mail()
+
+            if args.from_pattern:
+                term = args.from_pattern.strip()
+                queries = [f"from:{term}", f"subject:{term}", term]
+                if args.unread:
+                    queries = [f"is:unread {item}" for item in queries]
+                query_used, uids = reader.search_gmail_uids(
+                    queries,
+                    since=since,
+                    fallback_from=term,
+                )
+                if not uids:
+                    messages = []
+                else:
+                    chosen = uids[-max(1, args.limit) :]
+                    chosen.reverse()
+                    messages = reader.peek_headers(chosen, full=True)
+            else:
+                query_used = "UNSEEN" if args.unread else "ALL"
+                messages = reader.list_messages(
+                    limit=max(1, args.limit),
+                    unread_only=args.unread,
+                    since=since,
+                )
     except GmailConfigError as exc:
         print(str(exc))
         return 2
 
-    label = "Unread Gmail" if args.unread else "Recent Gmail"
+    label = "Unread Gmail" if args.unread else "Gmail search"
     print(label)
-    print(f"Account: {mask_email(cfg['email'])} · mailbox: {cfg['mailbox']}")
+    print(f"Account: {mask_email(cfg['email'])} · mailbox: {mailbox}")
+    if query_used:
+        print(f"Query: {query_used}")
     print()
     if not messages:
         print("No matching messages.")
+        if args.from_pattern and not args.inbox:
+            print("Searched All Mail. If this is still empty, Thndr mail is not in this Gmail account.")
+        elif args.from_pattern and args.inbox:
+            print("INBOX only. Try without --inbox so archived mail in All Mail is included.")
         return 0
 
     for index, msg in enumerate(messages, start=1):

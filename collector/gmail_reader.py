@@ -359,9 +359,12 @@ class GmailReader:
 
         fallbacks: list[tuple[str, tuple[str, ...]]] = []
         if fallback_from:
-            fallbacks.append((f"FROM {fallback_from}", ("FROM", fallback_from)))
-        fallbacks.append(("OR FROM thndr SUBJECT thndr", ("OR", "FROM", "thndr", "SUBJECT", "thndr")))
-        fallbacks.append(("TEXT THNDR", ("TEXT", "THNDR")))
+            term = fallback_from.strip()
+            fallbacks.append((f"FROM {term}", ("FROM", term)))
+            fallbacks.append(
+                (f"OR FROM {term} SUBJECT {term}", ("OR", "FROM", term, "SUBJECT", term))
+            )
+            fallbacks.append((f"TEXT {term}", ("TEXT", term)))
         since_token = f'SINCE {since.strftime("%d-%b-%Y")}' if since is not None else None
         for label, criteria in fallbacks:
             args = list(criteria)
@@ -376,16 +379,17 @@ class GmailReader:
                 return label, ids
         return last_query or (queries[0] if queries else ""), []
 
-    def peek_headers(self, uids: Sequence[str]) -> list[GmailMessage]:
+    def peek_headers(self, uids: Sequence[str], *, full: bool = False) -> list[GmailMessage]:
         self.connect()
         client = self._require_client()
+        specs = (
+            ("BODY.PEEK[]", "RFC822")
+            if full
+            else ("BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)]", "BODY.PEEK[]")
+        )
         messages: list[GmailMessage] = []
         for uid in uids:
-            raw = self._fetch_raw_uid(
-                client,
-                uid,
-                specs=("BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)]", "BODY.PEEK[]"),
-            )
+            raw = self._fetch_raw_uid(client, uid, specs=specs)
             if raw is None:
                 continue
             msg = message_from_bytes(raw)
@@ -395,7 +399,7 @@ class GmailReader:
                     from_addr=_decode_header_value(msg.get("From")),
                     subject=_decode_header_value(msg.get("Subject")) or "(no subject)",
                     date=_parse_message_date(msg),
-                    snippet="",
+                    snippet=_message_snippet(msg) if full else "",
                     unread=False,
                 )
             )
