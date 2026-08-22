@@ -326,6 +326,10 @@ def test_dashboard_income_versus_spending(tmp_path):
     assert dash["net"] == 12150
     assert dash["latest_balance"] == 18500
     assert dash["scope_period"] == "2026-08"
+    assert dash["accounts_total"] == 18500
+    assert len(dash["balances_by_bank"]) == 1
+    assert dash["balances_by_bank"][0]["bank"] == "SNB"
+    assert dash["balances_by_bank"][0]["balance"] == 18500
     year_dash = db.dashboard(year="2026", now=now)
     august = next(row for row in year_dash["by_month"] if row["period"] == "2026-08")
     assert august["income"] == 12400
@@ -389,6 +393,54 @@ def test_salary_pay_window_across_month_boundary(tmp_path):
     july_row = next(row for row in dash_year["by_month"] if row["period"] == "2026-07")
     assert august["income"] == 11500
     assert july_row["income"] == 0
+    db.close()
+
+
+def test_dashboard_sums_latest_balance_per_bank(tmp_path):
+    from zoneinfo import ZoneInfo
+
+    db = SpendingDatabase(tmp_path / "spending.db")
+    now = datetime(2026, 8, 10, 12, tzinfo=ZoneInfo("Asia/Riyadh"))
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="snb-old",
+            bank="SNB",
+            transaction_type="card_purchase",
+            amount=50,
+            currency="SAR",
+            category="Food & Dining",
+            balance=10000,
+            transaction_time=datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc),
+        )
+    )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="snb-new",
+            bank="SNB",
+            transaction_type="card_purchase",
+            amount=40,
+            currency="SAR",
+            category="Food & Dining",
+            balance=12000,
+            transaction_time=datetime(2026, 8, 5, 9, 0, tzinfo=timezone.utc),
+        )
+    )
+    db.insert_transaction(
+        Transaction(
+            source_message_guid="alinma",
+            bank="Alinma",
+            transaction_type="card_purchase",
+            amount=20,
+            currency="SAR",
+            category="Food & Dining",
+            balance=3500,
+            transaction_time=datetime(2026, 8, 4, 9, 0, tzinfo=timezone.utc),
+        )
+    )
+    dash = db.dashboard(now=now)
+    assert dash["accounts_total"] == 15500
+    by_bank = {row["bank"]: row["balance"] for row in dash["balances_by_bank"]}
+    assert by_bank == {"Alinma": 3500.0, "SNB": 12000.0}
     db.close()
 
 

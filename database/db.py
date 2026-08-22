@@ -570,6 +570,8 @@ class SpendingDatabase:
         latest_balance_at = None
         latest_balance_bank = None
         latest_stamp = None
+        # Latest known SMS balance per bank → sum = money across accounts.
+        bank_balances: dict[str, tuple[str, float]] = {}
 
         for row in rows:
             local_day = self._local_date(row["stamp"], tz)
@@ -577,6 +579,20 @@ class SpendingDatabase:
                 continue
             amount = float(row["amount"] or 0)
             ttype = row["transaction_type"] or ""
+            stamp_row = str(row["stamp"])
+
+            # Account balances use the latest SMS balance per bank (all time).
+            if row["balance"] is not None:
+                bal = float(row["balance"])
+                bank_name = (row["bank"] or "Unknown").strip() or "Unknown"
+                if latest_stamp is None or stamp_row > latest_stamp:
+                    latest_stamp = stamp_row
+                    latest_balance = bal
+                    latest_balance_at = stamp_row
+                    latest_balance_bank = bank_name
+                prev = bank_balances.get(bank_name)
+                if prev is None or stamp_row > prev[0]:
+                    bank_balances[bank_name] = (stamp_row, bal)
 
             if ttype == "salary":
                 pay_y, pay_m = pay_month_for_salary(local_day)
@@ -604,15 +620,12 @@ class SpendingDatabase:
                     label = row["category"] or "Other"
                     category_totals[label] = category_totals.get(label, 0.0) + amount
 
-            if row["balance"] is not None:
-                stamp_row = str(row["stamp"])
-                if latest_stamp is None or stamp_row > latest_stamp:
-                    latest_stamp = stamp_row
-                    latest_balance = float(row["balance"])
-                    latest_balance_at = stamp_row
-                    latest_balance_bank = row["bank"]
-
         income = salary + transfers_in
+        balances_by_bank = [
+            {"bank": name, "balance": bal, "at": stamp}
+            for name, (stamp, bal) in sorted(bank_balances.items(), key=lambda item: item[0])
+        ]
+        accounts_total = sum(item["balance"] for item in balances_by_bank) if balances_by_bank else None
         by_category = [
             {"label": label, "total_amount": total}
             for label, total in sorted(
@@ -639,6 +652,8 @@ class SpendingDatabase:
             "latest_balance": latest_balance,
             "latest_balance_at": latest_balance_at,
             "latest_balance_bank": latest_balance_bank,
+            "accounts_total": accounts_total,
+            "balances_by_bank": balances_by_bank,
             "by_category": by_category,
             "by_month": by_month,
             "scope_period": f"{scope_year:04d}-{scope_month:02d}",

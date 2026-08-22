@@ -459,14 +459,24 @@ async function showDashboard() {
   dashNet.classList.toggle("net-neg", data.net < 0);
   dashNet.classList.toggle("net-pos", data.net >= 0);
   dashNetSub.textContent = data.net >= 0 ? "in minus spending" : "spent more than came in";
-  if (data.latest_balance == null) {
+  if (data.accounts_total == null && data.latest_balance == null) {
     dashBalance.textContent = "—";
     dashBalanceSub.textContent = "no balance in SMS yet";
   } else {
-    dashBalance.textContent = sar(data.latest_balance);
-    dashBalanceSub.textContent = data.latest_balance_bank
-      ? `${data.latest_balance_bank}${data.latest_balance_at ? " · " + when(data.latest_balance_at) : ""}`
-      : "from the latest bank message";
+    const total = data.accounts_total != null ? data.accounts_total : data.latest_balance;
+    dashBalance.textContent = sar(total);
+    const banks = data.balances_by_bank || [];
+    if (banks.length > 1) {
+      dashBalanceSub.textContent = banks
+        .map((row) => `${row.bank} ${sar(row.balance)}`)
+        .join(" · ");
+    } else if (banks.length === 1) {
+      dashBalanceSub.textContent = `${banks[0].bank}${banks[0].at ? " · " + when(banks[0].at) : ""}`;
+    } else if (data.latest_balance_bank) {
+      dashBalanceSub.textContent = `${data.latest_balance_bank}${data.latest_balance_at ? " · " + when(data.latest_balance_at) : ""}`;
+    } else {
+      dashBalanceSub.textContent = "sum of latest SMS balance per bank";
+    }
   }
   renderColumnChart(dashFlow, data.by_month || []);
   if (dashFlowSub) {
