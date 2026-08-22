@@ -9,8 +9,10 @@ import pytest
 from collector.gmail_reader import (
     GmailConfigError,
     GmailReader,
+    find_all_mail_mailbox,
     load_gmail_config,
     mask_email,
+    parse_imap_list_line,
 )
 
 
@@ -101,3 +103,23 @@ def test_gmail_reader_list_messages(monkeypatch):
     assert len(rows) == 2
     assert rows[0].subject == "Card purchase"
     assert rows[0].date == datetime(2026, 8, 18, 10, 0, tzinfo=timezone.utc)
+
+
+def test_parse_imap_list_finds_all_mail():
+    parsed = parse_imap_list_line(b'(\\HasNoChildren \\All) "/" "[Gmail]/All Mail"')
+    assert parsed is not None
+    flags, name = parsed
+    assert "\\All" in flags.split()
+    assert name == "[Gmail]/All Mail"
+
+
+class FakeListClient:
+    def list(self):
+        return "OK", [
+            b'(\\HasNoChildren) "/" INBOX',
+            b'(\\HasNoChildren \\All) "/" "[Gmail]/All Mail"',
+        ]
+
+
+def test_find_all_mail_mailbox():
+    assert find_all_mail_mailbox(FakeListClient()) == "[Gmail]/All Mail"

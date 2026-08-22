@@ -28,10 +28,17 @@ SKIP_NAME_PREFIXES = (
     "code",
 )
 THNDR_SENDER_HINTS = ("thndr.app", "system.thndr.app", "thndr")
-THNDR_GMAIL_QUERY = (
-    '(from:no-reply@system.thndr.app OR from:thndr.app OR subject:Thndr '
-    'OR subject:"Your Thndr") has:attachment filename:pdf'
+# Simple Gmail queries only — nested quotes break IMAP X-GM-RAW quoting.
+THNDR_GMAIL_QUERIES = (
+    "from:thndr.app has:attachment filename:pdf",
+    "from:system.thndr.app has:attachment filename:pdf",
+    "subject:thndr has:attachment filename:pdf",
+    "thndr has:attachment filename:pdf",
+    "from:thndr.app",
+    "subject:thndr",
+    "thndr",
 )
+THNDR_GMAIL_QUERY = THNDR_GMAIL_QUERIES[0]
 
 
 @dataclass(frozen=True)

@@ -18,7 +18,7 @@ from collector.gmail_reader import (
 from collector.logging_config import setup_logging
 from collector.project_paths import GMAIL_CONFIG_PATH, GMAIL_EXAMPLE_PATH, LOGS_DIR
 from collector.thndr_pdf import (
-    THNDR_GMAIL_QUERY,
+    THNDR_GMAIL_QUERIES,
     InvoiceTrade,
     PdfParseResult,
     aggregate_stocks,
@@ -103,6 +103,11 @@ def main() -> int:
         help="Where to write downloaded PDFs (ignored with --no-save)",
     )
     parser.add_argument("--no-save", action="store_true", help="Parse in memory, do not write PDFs")
+    parser.add_argument(
+        "--mailbox",
+        default=None,
+        help='IMAP mailbox (default: Gmail All Mail, then config mailbox/INBOX)',
+    )
     args = parser.parse_args()
     setup_logging()
 
@@ -148,19 +153,39 @@ def main() -> int:
         email=cfg["email"],
         app_password=cfg["app_password"],
         imap_host=cfg["imap_host"],
-        mailbox=cfg["mailbox"],
+        mailbox=args.mailbox or cfg["mailbox"],
     )
     print(f"Searching Gmail for Thndr PDFs ({mask_email(cfg['email'])})")
-    print(f"Query: {THNDR_GMAIL_QUERY}")
     print()
     try:
         with reader:
-            attachments = reader.list_pdf_attachments(
-                gmail_query=THNDR_GMAIL_QUERY,
-                limit=max(1, args.limit),
+            if args.mailbox:
+                reader.select_mailbox(args.mailbox)
+                mailbox = reader.mailbox
+            else:
+                mailbox = reader.prefer_all_mail()
+            query, uids = reader.search_gmail_uids(
+                THNDR_GMAIL_QUERIES,
                 since=since,
                 fallback_from="thndr.app",
             )
+            print(f"Mailbox: {mailbox}")
+            print(f"Query: {query or '(none matched)'}")
+            print(f"Matched {len(uids)} message(s)")
+            print()
+            if not uids:
+                print("No Thndr emails found in this mailbox.")
+                print("If they exist in Gmail, they may be in another account than config/gmail.json.")
+                return 0
+            chosen = uids[-max(1, args.limit) :]
+            chosen.reverse()
+            headers = reader.peek_headers(chosen)
+            print("Matching emails")
+            for msg in headers:
+                print(f"  {_format_when(msg.date)}  {msg.subject}")
+                print(f"     From: {mask_email(msg.from_addr)}")
+            print()
+            attachments = reader.fetch_pdf_attachments(chosen)
     except GmailConfigError as exc:
         print(str(exc))
         return 2
@@ -169,7 +194,7 @@ def main() -> int:
         return 2
 
     if not attachments:
-        print("No Thndr PDF attachments found.")
+        print("Those emails had no PDF attachments (or the PDF part could not be decoded).")
         return 0
 
     print(f"Found {len(attachments)} PDF attachment(s) (read-only, not marked read)")

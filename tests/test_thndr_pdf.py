@@ -91,6 +91,9 @@ class FakeUidImap:
     def login(self, user, password):
         return "OK", [b""]
 
+    def list(self, directory='""', pattern="*"):
+        return "OK", [b'(\\HasNoChildren \\All) "/" "[Gmail]/All Mail"']
+
     def select(self, mailbox, readonly=False):
         self.selected = mailbox
         return "OK", [b"1"]
@@ -127,6 +130,7 @@ def test_list_pdf_attachments_uses_uid_fetch(monkeypatch):
     reader = GmailReader("you@gmail.com", "good")
     with reader:
         rows = reader.list_pdf_attachments(gmail_query="from:thndr.app filename:pdf", limit=3)
+    assert fake.selected == "[Gmail]/All Mail"
     assert len(rows) == 1
     assert rows[0].filename == "e-invoice.pdf"
     assert rows[0].uid == "99"

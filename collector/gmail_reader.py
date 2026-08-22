@@ -11,13 +11,14 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from collector.project_paths import GMAIL_CONFIG_PATH
 
 GMAIL_IMAP_HOST = "imap.gmail.com"
 GMAIL_IMAP_PORT = 993
 ICLOUD_HOSTS = frozenset({"imap.mail.me.com", "imap.mail.icloud.com"})
+ALL_MAIL_CANDIDATES = ("[Gmail]/All Mail", "[Google Mail]/All Mail", "All Mail")
 
 
 class GmailConfigError(Exception):
@@ -95,6 +96,47 @@ def mask_email(value: str) -> str:
     return text.replace(addr, f"{masked_local}@{domain}")
 
 
+def parse_imap_list_line(raw: bytes | str) -> tuple[str, str] | None:
+    """Return (flags, mailbox_name) from an IMAP LIST line."""
+    text = raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
+    text = text.strip()
+    if text.startswith("* "):
+        text = text[2:]
+    if text.upper().startswith("LIST "):
+        text = text[5:]
+    match = re.match(r"^\((?P<flags>[^)]*)\)\s+(\"(?:\\.|[^\"])*\"|\S+)\s+(?P<name>.+)$", text)
+    if not match:
+        return None
+    name = match.group("name").strip()
+    if name.startswith('"') and name.endswith('"') and len(name) >= 2:
+        name = name[1:-1].replace('\\"', '"')
+    return match.group("flags"), name
+
+
+def find_all_mail_mailbox(client: imaplib.IMAP4_SSL) -> str | None:
+    try:
+        status, rows = client.list()
+    except imaplib.IMAP4.error:
+        return None
+    if status != "OK":
+        return None
+    names: list[str] = []
+    for row in rows or []:
+        if row is None:
+            continue
+        parsed = parse_imap_list_line(row)
+        if parsed is None:
+            continue
+        flags, name = parsed
+        names.append(name)
+        if re.search(r"(^|\s)\\\\All(\s|$)", flags) or "\\All" in flags.split():
+            return name
+    for candidate in ALL_MAIL_CANDIDATES:
+        if candidate in names:
+            return candidate
+    return None
+
+
 def _decode_header_value(raw: str | None) -> str:
     if not raw:
         return ""
@@ -104,32 +146,26 @@ def _decode_header_value(raw: str | None) -> str:
         return raw
 
 
-def _message_snippet(msg) -> str:
-    if msg.is_multipart():
-        for part in msg.walk():
-            if part.get_content_maintype() == "multipart":
-                continue
-            if part.get_content_type() != "text/plain":
-                continue
-            payload = part.get_payload(decode=True)
-            if not payload:
-                continue
-            charset = part.get_content_charset() or "utf-8"
-            try:
-                text = payload.decode(charset, errors="replace")
-            except LookupError:
-                text = payload.decode("utf-8", errors="replace")
-            return " ".join(text.split())[:240]
-        return ""
-    payload = msg.get_payload(decode=True)
+def _decode_text(part) -> str:
+    payload = part.get_payload(decode=True)
     if not payload:
         return ""
-    charset = msg.get_content_charset() or "utf-8"
+    charset = part.get_content_charset() or "utf-8"
     try:
-        text = payload.decode(charset, errors="replace")
+        return payload.decode(charset, errors="replace")
     except LookupError:
-        text = payload.decode("utf-8", errors="replace")
-    return " ".join(text.split())[:240]
+        return payload.decode("utf-8", errors="replace")
+
+
+def _message_snippet(msg) -> str:
+    parts = msg.walk() if msg.is_multipart() else (msg,)
+    for part in parts:
+        if part.get_content_maintype() == "multipart" or part.get_content_type() != "text/plain":
+            continue
+        text = " ".join(_decode_text(part).split())
+        if text:
+            return text[:240]
+    return ""
 
 
 def _parse_message_date(msg) -> datetime | None:
@@ -181,11 +217,16 @@ class GmailReader:
             return
         client = imaplib.IMAP4_SSL(self.imap_host, GMAIL_IMAP_PORT)
         client.login(self.email, self.app_password)
-        status, _ = client.select(self.mailbox, readonly=True)
-        if status != "OK":
-            client.logout()
-            raise GmailConfigError(f"Could not open mailbox {self.mailbox!r}.")
         self._client = client
+        try:
+            self.select_mailbox(self.mailbox)
+        except GmailConfigError:
+            try:
+                client.logout()
+            except imaplib.IMAP4.error:
+                pass
+            self._client = None
+            raise
 
     def close(self) -> None:
         if self._client is None:
@@ -241,6 +282,25 @@ class GmailReader:
             raise RuntimeError("GmailReader is not connected")
         return self._client
 
+    def select_mailbox(self, mailbox: str) -> None:
+        client = self._require_client()
+        name = (mailbox or "INBOX").strip() or "INBOX"
+        status, _ = client.select(name, readonly=True)
+        if status != "OK":
+            raise GmailConfigError(f"Could not open mailbox {name!r}.")
+        self.mailbox = name
+
+    def prefer_all_mail(self) -> str:
+        """Use All Mail so archived Thndr invoices are included, not just INBOX."""
+        self.connect()
+        all_mail = find_all_mail_mailbox(self._require_client())
+        if all_mail and all_mail != self.mailbox:
+            try:
+                self.select_mailbox(all_mail)
+            except GmailConfigError:
+                return self.mailbox
+        return self.mailbox
+
     def list_messages(
         self,
         *,
@@ -272,27 +332,80 @@ class GmailReader:
             messages.append(msg)
         return messages
 
-    def list_pdf_attachments(
+    def search_gmail_uids(
         self,
+        queries: Sequence[str],
         *,
-        gmail_query: str,
-        limit: int = 10,
         since: datetime | None = None,
         fallback_from: str | None = None,
-    ) -> list[GmailPdfAttachment]:
-        """Fetch PDF attachments without marking messages read (BODY.PEEK / UID FETCH)."""
+    ) -> tuple[str, list[str]]:
         self.connect()
         client = self._require_client()
-        query = gmail_query.strip()
-        if since is not None:
-            query = f"{query} after:{since.strftime('%Y/%m/%d')}"
-        ids = self._gmail_search_uids(client, query, fallback_from=fallback_from, since=since)
-        if not ids:
-            return []
-        chosen = ids[-max(1, limit) :]
-        chosen.reverse()
+        last_query = ""
+        for raw in queries:
+            query = raw.strip()
+            if not query:
+                continue
+            if since is not None:
+                query = f"{query} after:{since.strftime('%Y/%m/%d')}"
+            last_query = query
+            try:
+                status, data = client.uid("SEARCH", "X-GM-RAW", query)
+            except imaplib.IMAP4.error:
+                continue
+            ids = _uids_from_search(status, data)
+            if ids:
+                return query, ids
+
+        fallbacks: list[tuple[str, tuple[str, ...]]] = []
+        if fallback_from:
+            fallbacks.append((f"FROM {fallback_from}", ("FROM", fallback_from)))
+        fallbacks.append(("OR FROM thndr SUBJECT thndr", ("OR", "FROM", "thndr", "SUBJECT", "thndr")))
+        fallbacks.append(("TEXT THNDR", ("TEXT", "THNDR")))
+        since_token = f'SINCE {since.strftime("%d-%b-%Y")}' if since is not None else None
+        for label, criteria in fallbacks:
+            args = list(criteria)
+            if since_token:
+                args.append(since_token)
+            try:
+                status, data = client.uid("SEARCH", *args)
+            except imaplib.IMAP4.error:
+                continue
+            ids = _uids_from_search(status, data)
+            if ids:
+                return label, ids
+        return last_query or (queries[0] if queries else ""), []
+
+    def peek_headers(self, uids: Sequence[str]) -> list[GmailMessage]:
+        self.connect()
+        client = self._require_client()
+        messages: list[GmailMessage] = []
+        for uid in uids:
+            raw = self._fetch_raw_uid(
+                client,
+                uid,
+                specs=("BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)]", "BODY.PEEK[]"),
+            )
+            if raw is None:
+                continue
+            msg = message_from_bytes(raw)
+            messages.append(
+                GmailMessage(
+                    uid=uid,
+                    from_addr=_decode_header_value(msg.get("From")),
+                    subject=_decode_header_value(msg.get("Subject")) or "(no subject)",
+                    date=_parse_message_date(msg),
+                    snippet="",
+                    unread=False,
+                )
+            )
+        return messages
+
+    def fetch_pdf_attachments(self, uids: Sequence[str]) -> list[GmailPdfAttachment]:
+        self.connect()
+        client = self._require_client()
         attachments: list[GmailPdfAttachment] = []
-        for uid in chosen:
+        for uid in uids:
             raw_msg = self._fetch_raw_uid(client, uid)
             if raw_msg is None:
                 continue
@@ -313,32 +426,48 @@ class GmailReader:
                 )
         return attachments
 
-    def _gmail_search_uids(
+    def list_pdf_attachments(
+        self,
+        *,
+        gmail_query: str,
+        limit: int = 10,
+        since: datetime | None = None,
+        fallback_from: str | None = None,
+        prefer_all_mail: bool = True,
+    ) -> list[GmailPdfAttachment]:
+        """Fetch PDF attachments without marking messages read (BODY.PEEK / UID FETCH)."""
+        self.connect()
+        if prefer_all_mail:
+            self.prefer_all_mail()
+        _query, ids = self.search_gmail_uids(
+            [gmail_query],
+            since=since,
+            fallback_from=fallback_from,
+        )
+        if not ids:
+            return []
+        chosen = ids[-max(1, limit) :]
+        chosen.reverse()
+        return self.fetch_pdf_attachments(chosen)
+
+    def _fetch_raw_uid(
         self,
         client: imaplib.IMAP4_SSL,
-        gmail_query: str,
-        *,
-        fallback_from: str | None,
-        since: datetime | None,
-    ) -> list[str]:
-        status, data = client.uid("SEARCH", "X-GM-RAW", gmail_query)
-        if status == "OK" and data and data[0]:
-            return [item.decode("ascii", errors="ignore") for item in data[0].split() if item]
-        criteria: list[str] = ["ALL"]
-        if fallback_from:
-            criteria = ["FROM", fallback_from]
-        if since is not None:
-            criteria.append(f'SINCE {since.strftime("%d-%b-%Y")}')
-        status, data = client.uid("SEARCH", *criteria)
-        if status != "OK" or not data or not data[0]:
-            return []
-        return [item.decode("ascii", errors="ignore") for item in data[0].split() if item]
-
-    def _fetch_raw_uid(self, client: imaplib.IMAP4_SSL, uid: str) -> bytes | None:
-        status, data = client.uid("FETCH", uid, "(BODY.PEEK[])")
-        if status != "OK" or not data:
-            return None
-        return _extract_body_bytes(data)
+        uid: str,
+        specs: Sequence[str] = ("BODY.PEEK[]", "RFC822"),
+    ) -> bytes | None:
+        for spec in specs:
+            wrapped = spec if spec.startswith("(") else f"({spec})"
+            try:
+                status, data = client.uid("FETCH", uid, wrapped)
+            except imaplib.IMAP4.error:
+                continue
+            if status != "OK" or not data:
+                continue
+            raw = _extract_body_bytes(data)
+            if raw:
+                return raw
+        return None
 
     def _fetch_message(self, client: imaplib.IMAP4_SSL, uid: str) -> GmailMessage | None:
         status, data = client.fetch(uid, "(BODY.PEEK[] FLAGS)")
@@ -359,10 +488,18 @@ class GmailReader:
         )
 
 
+def _uids_from_search(status: str, data) -> list[str]:
+    if status != "OK" or not data or not data[0]:
+        return []
+    return [item.decode("ascii", errors="ignore") for item in data[0].split() if item]
+
+
 def _extract_body_bytes(fetch_data: Iterable) -> bytes | None:
     for item in fetch_data:
         if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], (bytes, bytearray)):
-            return bytes(item[1])
+            raw = bytes(item[1])
+            if raw:
+                return raw
     return None
 
 
